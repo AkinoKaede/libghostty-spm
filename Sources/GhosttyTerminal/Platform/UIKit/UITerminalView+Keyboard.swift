@@ -125,7 +125,17 @@
                         }
                         continue
                     }
-                    handleKeyPress(key, action: GHOSTTY_ACTION_PRESS)
+                    // Caps Lock switches the input source in the text input
+                    // system, which only sees a press that reaches it.
+                    guard handleKeyPress(key, action: GHOSTTY_ACTION_PRESS) else {
+                        TerminalDebugLog.log(
+                            .input,
+                            "uikit key ignored by surface, forwarded to super code=\(key.keyCode.rawValue)"
+                        )
+                        hardwareKeyboard.pressesForwardedToInputMethod.insert(press)
+                        forwardedToInputMethod.insert(press)
+                        continue
+                    }
                     startKeyRepeat(for: press)
                 }
                 // `super` is how UIKit feeds an unhandled press to the text
@@ -153,14 +163,13 @@
                     if press === hardwareKeyboard.keyRepeat?.press {
                         stopKeyRepeat()
                     }
+                    if hardwareKeyboard.pressesForwardedToInputMethod.remove(press) != nil {
+                        forwardedToInputMethod.insert(press)
+                    }
                     if hardwareKeyboard.pressesLoanedToInputMethod.remove(press) != nil {
                         // The surface never saw this press (a replayed key
                         // carries its own synthetic release), so it gets no
-                        // release either — but a began that went to `super`
-                        // must complete there.
-                        if hardwareKeyboard.pressesForwardedToInputMethod.remove(press) != nil {
-                            forwardedToInputMethod.insert(press)
-                        }
+                        // release either.
                         continue
                     }
                     guard let key = press.key else { continue }
@@ -205,14 +214,15 @@
             }
         #endif
 
+        @discardableResult
         func handleKeyPress(
             _ key: UIKey,
             action: ghostty_input_action_e
-        ) {
+        ) -> Bool {
             notePointerModifierFlags(key.modifierFlags)
             guard let surface else {
                 TerminalDebugLog.log(.input, "uikit key ignored: missing surface")
-                return
+                return false
             }
 
             let filteredModifierFlags = filteredModifierFlags(for: key)
@@ -254,8 +264,7 @@
             keyEvent.consumed_mods = TerminalInputModifiers(from: consumedFlags).ghosttyMods
 
             guard action == GHOSTTY_ACTION_PRESS || action == GHOSTTY_ACTION_REPEAT else {
-                _ = surface.sendKeyEvent(keyEvent)
-                return
+                return surface.sendKeyEvent(keyEvent)
             }
 
             let filteredIgnoringModifiers = TerminalInputText.filteredFunctionKeyText(
@@ -277,15 +286,15 @@
                    modifierFlags: filteredModifierFlags
                )
             {
-                return
+                return true
             }
 
             guard !isCommandModified else {
-                _ = surface.sendKeyEvent(keyEvent)
+                let consumed = surface.sendKeyEvent(keyEvent)
                 if let keyboardZoomDirection {
                     scheduleViewportRefreshAfterKeyboardZoom(keyboardZoomDirection)
                 }
-                return
+                return consumed
             }
 
             var derivedText = TerminalInputText.filteredFunctionKeyText(key.characters)
@@ -305,13 +314,12 @@
             }
 
             guard let text = derivedText, !text.isEmpty else {
-                _ = surface.sendKeyEvent(keyEvent)
-                return
+                return surface.sendKeyEvent(keyEvent)
             }
 
-            text.withCString { ptr in
+            return text.withCString { ptr in
                 keyEvent.text = ptr
-                _ = surface.sendKeyEvent(keyEvent)
+                return surface.sendKeyEvent(keyEvent)
             }
         }
 
