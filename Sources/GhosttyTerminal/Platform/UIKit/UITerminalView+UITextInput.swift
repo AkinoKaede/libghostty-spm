@@ -232,7 +232,7 @@
         }
 
         open var endOfDocument: UITextPosition {
-            TerminalTextPosition(inputHandler.documentLength)
+            TerminalTextPosition(inputHandler.document.length)
         }
 
         open func textRange(
@@ -252,7 +252,7 @@
         ) -> UITextPosition? {
             guard let pos = position as? TerminalTextPosition else { return nil }
             let newIndex = pos.index + offset
-            guard newIndex >= 0, newIndex <= inputHandler.documentLength else { return nil }
+            guard newIndex >= 0, newIndex <= inputHandler.document.length else { return nil }
             return TerminalTextPosition(newIndex)
         }
 
@@ -382,13 +382,14 @@
             byExtending position: UITextPosition,
             in _: UITextLayoutDirection
         ) -> UITextRange? {
-            guard inputHandler.documentLength > 0,
+            let documentLength = inputHandler.document.length
+            guard documentLength > 0,
                   let position = position as? TerminalTextPosition
             else {
                 return TerminalTextRange(location: 0, length: 0)
             }
 
-            let location = min(max(position.index, 0), inputHandler.documentLength - 1)
+            let location = min(max(position.index, 0), documentLength - 1)
             return TerminalTextRange(location: location, length: 1)
         }
 
@@ -418,7 +419,7 @@
         private func markedTextRect() -> CGRect {
             let baseRect = imeRect()
             guard
-                inputHandler.markedTextLength > 0,
+                inputHandler.hasMarkedText,
                 let range = markedTextRange as? TerminalTextRange
             else {
                 return baseRect
@@ -434,7 +435,7 @@
         private func caretRectForPosition(_ position: UITextPosition) -> CGRect {
             let baseRect = imeRect()
             let cellWidth = compositionCellWidth(in: baseRect)
-            guard inputHandler.markedTextLength > 0 else {
+            guard inputHandler.hasMarkedText else {
                 let rect = CGRect(
                     x: baseRect.minX,
                     y: baseRect.minY,
@@ -462,10 +463,7 @@
                 return rect
             }
 
-            let clampedIndex = min(
-                max(position.index - TerminalTextInputHandler.documentAnchorLength, 0),
-                inputHandler.markedTextLength
-            )
+            let clampedIndex = inputHandler.document.markedOffset(of: position.index)
             let x = baseRect.minX + CGFloat(clampedIndex) * cellWidth
             let rect = CGRect(
                 x: x,
@@ -485,15 +483,12 @@
             in baseRect: CGRect,
             fallbackWidth: CGFloat
         ) -> CGRect {
-            let documentLength = max(inputHandler.markedTextLength, 1)
             let cellWidth = compositionCellWidth(in: baseRect)
-            let location = min(
-                max(range.location - TerminalTextInputHandler.documentAnchorLength, 0),
-                documentLength
+            let markedRange = inputHandler.document.markedRange(
+                of: NSRange(location: range.location, length: range.length)
             )
-            let length = max(range.length, 0)
-            let x = baseRect.minX + CGFloat(location) * cellWidth
-            let width = max(CGFloat(length) * cellWidth, fallbackWidth)
+            let x = baseRect.minX + CGFloat(markedRange.location) * cellWidth
+            let width = max(CGFloat(markedRange.length) * cellWidth, fallbackWidth)
             return CGRect(
                 x: x,
                 y: baseRect.minY,
@@ -515,15 +510,15 @@
 
         private func textIndex(for point: CGPoint) -> Int {
             let baseRect = imeRect()
-            let anchor = TerminalTextInputHandler.documentAnchorLength
-            guard inputHandler.markedTextLength > 0 else { return anchor }
+            let document = inputHandler.document
+            guard document.markedLength > 0 else { return document.position(ofMarkedOffset: 0) }
 
             let cellWidth = compositionCellWidth(in: baseRect)
-            guard cellWidth > 0 else { return anchor }
+            guard cellWidth > 0 else { return document.position(ofMarkedOffset: 0) }
 
             let relativeX = point.x - baseRect.minX
             let rawIndex = Int((relativeX / cellWidth).rounded(.down))
-            let index = anchor + min(max(rawIndex, 0), inputHandler.markedTextLength)
+            let index = document.position(ofMarkedOffset: rawIndex)
             TerminalDebugLog.log(
                 .ime,
                 "textIndex point=\(NSCoder.string(for: point)) base=\(NSCoder.string(for: baseRect)) cellWidth=\(String(format: "%.2f", cellWidth)) index=\(index)"

@@ -27,25 +27,22 @@
         /// document is only ever the composition, empty at a prompt, so the
         /// caret was always at its start and a held Delete sent exactly one
         /// backspace. One position of anchor ahead of the composition keeps
-        /// the caret off the start; it carries no text (`text(in:)` reads it
-        /// as empty), so what the keyboard reads as context is unchanged.
-        /// Catalyst has no software keyboard and keeps the plain document.
+        /// the caret off the start; it carries no text, so what the keyboard
+        /// reads as context is unchanged. Catalyst has no software keyboard
+        /// and keeps the plain document.
         #if targetEnvironment(macCatalyst)
-            static let documentAnchorLength = 0
+            private static let documentAnchorLength = 0
         #else
-            static let documentAnchorLength = 1
+            private static let documentAnchorLength = 1
         #endif
 
-        /// Length of the marked text alone, in UTF-16 units.
-        var markedTextLength: Int {
-            markedTextState.documentLength
-        }
-
-        /// Length of the UITextInput document: the anchor plus the marked
-        /// text. Every `TerminalTextPosition` the view hands UIKit is in
-        /// these coordinates.
-        var documentLength: Int {
-            Self.documentAnchorLength + markedTextState.documentLength
+        /// The UITextInput document. Every `TerminalTextPosition` the view
+        /// hands UIKit is a position in it.
+        var document: TerminalInputDocument {
+            TerminalInputDocument(
+                anchorLength: Self.documentAnchorLength,
+                markedLength: markedTextState.documentLength
+            )
         }
 
         init(view: UITerminalView) {
@@ -229,28 +226,24 @@
         func markedTextRange() -> TerminalTextRange? {
             guard markedTextState.hasMarkedText else { return nil }
             return TerminalTextRange(
-                location: Self.documentAnchorLength + markedTextState.markedRange.location,
+                location: document.position(ofMarkedOffset: markedTextState.markedRange.location),
                 length: markedTextState.markedRange.length
             )
         }
 
         func selectedTextRange() -> TerminalTextRange {
             TerminalTextRange(
-                location: Self.documentAnchorLength + markedTextState.selectedRange.location,
+                location: document.position(ofMarkedOffset: markedTextState.selectedRange.location),
                 length: markedTextState.selectedRange.length
             )
         }
 
         func setSelectedTextRange(_ range: UITextRange?) {
-            let updatedRange = if let range = range as? TerminalTextRange {
-                NSRange(
-                    location: range.location - Self.documentAnchorLength,
-                    length: range.length
-                )
+            let clampedRange = if let range = range as? TerminalTextRange {
+                document.markedRange(of: NSRange(location: range.location, length: range.length))
             } else {
                 NSRange(location: 0, length: 0)
             }
-            let clampedRange = clampedSelectedRange(updatedRange)
             guard markedTextState.selectedRange != clampedRange else { return }
             TerminalDebugLog.log(
                 .ime,
@@ -261,19 +254,11 @@
             notifySelectionDidChange()
         }
 
-        /// The anchor reads as no text: only the part of `range` that
-        /// overlaps the marked text contributes characters.
         func text(in range: TerminalTextRange) -> String? {
-            guard range.location >= 0,
-                  range.length >= 0,
-                  range.location + range.length <= documentLength
-            else { return nil }
-            let start = max(range.location - Self.documentAnchorLength, 0)
-            let end = max(range.location + range.length - Self.documentAnchorLength, 0)
-            return markedTextState.text(in: NSRange(
-                location: start,
-                length: end - start
-            ))
+            let document = document
+            guard range.location >= 0, range.length >= 0, range.location + range.length <= document.length else { return nil }
+            let markedRange = document.markedRange(of: NSRange(location: range.location, length: range.length))
+            return markedTextState.text(in: markedRange)
         }
 
         func deleteBackwardInMarkedText() -> Bool {
@@ -317,13 +302,6 @@
             hasMarkedText
                 || markedTextState.selectedRange.location != 0
                 || markedTextState.selectedRange.length != 0
-        }
-
-        private func clampedSelectedRange(_ range: NSRange) -> NSRange {
-            let length = markedTextState.documentLength
-            let location = min(max(range.location, 0), length)
-            let end = min(max(range.location + range.length, location), length)
-            return NSRange(location: location, length: end - location)
         }
 
         private func notifySelectionWillChange() {
