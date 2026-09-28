@@ -31,6 +31,11 @@ public final class TerminalViewState: ObservableObject {
     /// update). Drives a host-drawn scrollbar.
     @Published public internal(set) var scrollbar: TerminalScrollbar?
 
+    /// The effective config's `background`, or the color a program set with
+    /// OSC 11 while the surface lives.
+    @Published public internal(set) var backgroundColor: TerminalColor
+    var programBackgroundColor: TerminalColor?
+
     public internal(set) weak var surface: TerminalSurface?
 
     /// The platform view currently presenting this state, set by the SwiftUI
@@ -219,15 +224,18 @@ public final class TerminalViewState: ObservableObject {
         theme: TerminalTheme = .default,
         terminalConfiguration: TerminalConfiguration = .init()
     ) {
-        controller = TerminalController(
+        let controller = TerminalController(
             configSource: configSource,
             theme: theme,
             terminalConfiguration: terminalConfiguration
         )
+        self.controller = controller
+        backgroundColor = controller.backgroundColor
     }
 
     public init(controller: TerminalController) {
         self.controller = controller
+        backgroundColor = controller.backgroundColor
     }
 
     // MARK: - Forwarded from Controller (single source of truth)

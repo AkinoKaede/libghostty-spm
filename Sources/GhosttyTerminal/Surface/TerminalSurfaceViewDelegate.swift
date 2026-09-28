@@ -134,6 +134,39 @@ public protocol TerminalSurfaceProgressReportDelegate: TerminalSurfaceViewDelega
     func terminalDidReportProgress(state: TerminalProgressState, percent: Int?)
 }
 
+public enum TerminalColorChangeKind: Hashable, Sendable {
+    case foreground
+    case background
+    case cursor
+    case palette(Int)
+
+    init(_ raw: ghostty_action_color_kind_e) {
+        switch raw {
+        case GHOSTTY_ACTION_COLOR_KIND_FOREGROUND: self = .foreground
+        case GHOSTTY_ACTION_COLOR_KIND_BACKGROUND: self = .background
+        case GHOSTTY_ACTION_COLOR_KIND_CURSOR: self = .cursor
+        default: self = .palette(Int(raw.rawValue))
+        }
+    }
+}
+
+public struct TerminalColorChange: Hashable, Sendable {
+    public let kind: TerminalColorChangeKind
+    public let color: TerminalColor
+
+    public init(kind: TerminalColorChangeKind, color: TerminalColor) {
+        self.kind = kind
+        self.color = color
+    }
+}
+
+/// OSC 10/11/12 and OSC 4; a reset (OSC 110/111/112, OSC 104) arrives as a
+/// change back to the config's color.
+@MainActor
+public protocol TerminalSurfaceColorChangeDelegate: TerminalSurfaceViewDelegate {
+    func terminalDidChangeColor(_ change: TerminalColorChange)
+}
+
 /// Fires when a shell-integration-aware command exits. `exitCode` is nil
 /// when not reported; `duration` is the wall clock in nanoseconds.
 @MainActor

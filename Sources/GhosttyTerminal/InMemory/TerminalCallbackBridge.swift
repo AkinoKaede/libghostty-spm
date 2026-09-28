@@ -76,6 +76,19 @@ final class TerminalCallbackBridge {
             (delegate as? any TerminalSurfaceProgressReportDelegate)?
                 .terminalDidReportProgress(state: state, percent: percent)
 
+        case GHOSTTY_ACTION_COLOR_CHANGE:
+            let payload = action.action.color_change
+            let change = TerminalColorChange(
+                kind: TerminalColorChangeKind(payload.kind),
+                color: TerminalColor(red: payload.r, green: payload.g, blue: payload.b)
+            )
+            TerminalDebugLog.log(
+                .actions,
+                "callback action=color_change kind=\(change.kind) r=\(payload.r) g=\(payload.g) b=\(payload.b)"
+            )
+            (delegate as? any TerminalSurfaceColorChangeDelegate)?
+                .terminalDidChangeColor(change)
+
         case GHOSTTY_ACTION_COMMAND_FINISHED:
             let finished = action.action.command_finished
             // int16_t -1 signals unknown exit code.

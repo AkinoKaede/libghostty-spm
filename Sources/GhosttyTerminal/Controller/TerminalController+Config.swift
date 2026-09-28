@@ -237,5 +237,10 @@ extension TerminalController {
         renderedConfigContents = prepared.renderedContents
         configSource = source
         lastConfigurationIssue = nil
+
+        let key = "background"
+        var background = ghostty_config_color_s()
+        _ = ghostty_config_get(prepared.rawValue, &background, key, UInt(key.utf8.count))
+        backgroundColor = TerminalColor(background)
     }
 }
