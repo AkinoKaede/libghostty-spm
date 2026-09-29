@@ -526,7 +526,10 @@ Two release tracks, decoupled since 1.4.0:
   own sequence, independent of upstream's. Since 1.5.2 the version is
   `<major.minor>.<UTC YYYYMMDD>` (`1.5.20260903`): the patch is the release
   date, so a `from:` pin takes every weekly release, and major.minor moves
-  only when someone passes a version by hand. The "Release Package"
+  only when someone passes a version by hand. A second release on one UTC
+  day takes the latest patch + 1 instead (a hand release at 03:00 on
+  2026-09-28 made that day's weekly refuse an existing tag), so the patch
+  can read a day or two ahead of the calendar. The "Release Package"
   workflow (release.yml, dispatch; `package_version` optional, derived
   from the latest tag when empty) never runs Zig: it refuses a version
   that is not newer than the latest semver tag, requires the storage

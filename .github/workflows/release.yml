@@ -51,13 +51,16 @@ jobs:
 
           # Package versions are <major.minor>.<UTC YYYYMMDD>: the patch is
           # a date, so every weekly release is a compatible update for a
-          # `from:` pin, and major.minor moves only by hand.
+          # `from:` pin, and major.minor moves only by hand. A second release
+          # on one UTC day takes the next patch, which reads as tomorrow.
           if [ -z "$PACKAGE_VERSION" ]; then
             if [ -z "$LATEST_PACKAGE_VERSION" ]; then
               echo "[!] no package tag to derive major.minor from; pass package_version"
               exit 1
             fi
-            PACKAGE_VERSION="${LATEST_PACKAGE_VERSION%.*}.$(date -u +%Y%m%d)"
+            TODAY=$(date -u +%Y%m%d)
+            NEXT_PATCH=$((${LATEST_PACKAGE_VERSION##*.} + 1))
+            PACKAGE_VERSION="${LATEST_PACKAGE_VERSION%.*}.$((TODAY > NEXT_PATCH ? TODAY : NEXT_PATCH))"
           fi
           if ! echo "$PACKAGE_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "[!] package_version must be semantic, for example 1.5.20260903: $PACKAGE_VERSION"
