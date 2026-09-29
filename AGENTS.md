@@ -619,8 +619,9 @@ Two release tracks, decoupled since 1.4.0:
   and `ghostty_surface_inspector` are deliberately unbound; the
   `ghostty_surface_split*` family, `ghostty_app_key*`,
   `ghostty_config_load_cli_args` / `ghostty_config_load_default_files` /
-  `ghostty_config_load_recursive_files` / `ghostty_config_get` (the
-  controller only calls `ghostty_config_load_file` on its rendered config),
+  `ghostty_config_load_recursive_files` (the controller only calls
+  `ghostty_config_load_file` on its rendered config; `ghostty_config_get`
+  is bound for `background` alone — `TerminalController.backgroundColor`),
   and `ghostty_surface_quicklook_font` have no Swift wrapper yet
 
 ### Example App Requirements

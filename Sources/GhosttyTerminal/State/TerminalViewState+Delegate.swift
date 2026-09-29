@@ -20,7 +20,8 @@ extension TerminalViewState:
     TerminalSurfaceCommandFinishedDelegate,
     TerminalSurfaceLifecycleDelegate,
     TerminalSurfaceTextSelectionRequestDelegate,
-    TerminalSurfaceClipboardConfirmationDelegate
+    TerminalSurfaceClipboardConfirmationDelegate,
+    TerminalSurfaceColorChangeDelegate
 {
     /// Applies a change to this state on the main queue's next turn.
     ///
@@ -117,6 +118,15 @@ extension TerminalViewState:
         }
     }
 
+    public func terminalDidChangeColor(_ change: TerminalColorChange) {
+        guard change.kind == .background else { return }
+        publishSoon {
+            // A reset (OSC 111) reports the config color with no marker of its own.
+            $0.programBackgroundColor = change.color == $0.controller.backgroundColor ? nil : change.color
+            $0.publishBackgroundColor()
+        }
+    }
+
     public func terminalDidFinishCommand(exitCode: Int?, durationNanos: UInt64) {
         publishSoon {
             $0.lastCommandExitCode = exitCode
@@ -151,5 +161,9 @@ extension TerminalViewState:
         // surface the incoming view attached. A freed surface reads nil.
         guard surface?.rawValue == nil else { return }
         surface = nil
+        publishSoon {
+            $0.programBackgroundColor = nil
+            $0.publishBackgroundColor()
+        }
     }
 }

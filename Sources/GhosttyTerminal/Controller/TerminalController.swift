@@ -93,6 +93,9 @@ public final class TerminalController {
     /// The currently active color scheme.
     public private(set) var effectiveColorScheme: TerminalColorScheme = .light
 
+    /// The effective config's `background`.
+    public internal(set) var backgroundColor = TerminalColor(red: 0x28, green: 0x2C, blue: 0x34)
+
     // MARK: - Public Accessors
 
     public var currentConfigSource: ConfigSource {
