@@ -30,6 +30,7 @@ for f in \
     src/Command.zig \
     src/pty.zig \
     src/renderer/Metal.zig \
+    src/renderer/metal/Device.zig \
     src/renderer/metal/IOSurfaceLayer.zig \
     src/font/shaper/coretext.zig \
     src/config/theme.zig \

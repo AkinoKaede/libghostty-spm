@@ -109,7 +109,7 @@ grep -q '\.visionos => \.{ \.semver' src/build/Config.zig || { echo "[!] Config.
 echo "[+] patched Config.zig"
 
 # 3. Runtime switches: visionOS takes the iOS arm everywhere.
-perl -pi -e 's/^(\s+)\.macos, \.ios => \{\},/$1.macos, .ios, .visionos => {},/; s/^(\s+)\.ios => \.shared,/$1.ios, .visionos => .shared,/; s/^(\s+)\.ios => \{$/$1.ios, .visionos => {/; s/builtin\.os\.tag == \.ios\)/(builtin.os.tag == .ios or builtin.os.tag == .visionos))/g' src/renderer/Metal.zig
+perl -pi -e 's/^(\s+)\.macos, \.ios => \{\},/$1.macos, .ios, .visionos => {},/; s/^(\s+)\.ios => \.shared,/$1.ios, .visionos => .shared,/; s/^(\s+)\.ios => \{$/$1.ios, .visionos => {/; s/builtin\.os\.tag == \.ios\)/(builtin.os.tag == .ios or builtin.os.tag == .visionos))/g' src/renderer/Metal.zig src/renderer/metal/Device.zig
 perl -pi -e 's/builtin\.os\.tag == \.ios\)/(builtin.os.tag == .ios or builtin.os.tag == .visionos))/g' src/renderer/metal/IOSurfaceLayer.zig
 perl -pi -e 's/builtin\.os\.tag != \.ios\)/(builtin.os.tag != .ios and builtin.os.tag != .visionos))/g' src/font/shaper/coretext.zig
 perl -pi -e 's/^(\s+)\.ios => NullPty,/$1.ios, .visionos => NullPty,/' src/pty.zig
@@ -121,5 +121,5 @@ perl -pi -e 's/^(\s+)\.ios, \.macos => 4, \/\/ mac/$1.ios, .visionos, .macos => 
 perl -pi -e 's/^(\s+)\.ios, \.tvos, \.watchos => false,/$1.ios, .visionos, .tvos, .watchos => false,/' src/cli/tui.zig
 perl -pi -e 's/^(\s+)\.freebsd, \.ios, \.macos => \{/$1.freebsd, .ios, .visionos, .macos => {/' src/Command.zig
 perl -pi -e 's/^(\s+)\.ios => error\.XcodeiOSSDKNotFound,/$1.ios => error.XcodeiOSSDKNotFound,\n$1.visionos => error.XcodeVisionOSSDKNotFound,/' pkg/apple-sdk/build.zig
-for f in src/renderer/Metal.zig src/renderer/metal/IOSurfaceLayer.zig src/font/shaper/coretext.zig src/pty.zig src/os/desktop.zig src/os/homedir.zig src/os/open.zig src/config/theme.zig src/input/keycodes.zig src/cli/tui.zig src/Command.zig pkg/apple-sdk/build.zig; do grep -q visionos "$f" || { echo "[!] $f: visionos arm missing"; exit 1; }; done
+for f in src/renderer/Metal.zig src/renderer/metal/Device.zig src/renderer/metal/IOSurfaceLayer.zig src/font/shaper/coretext.zig src/pty.zig src/os/desktop.zig src/os/homedir.zig src/os/open.zig src/config/theme.zig src/input/keycodes.zig src/cli/tui.zig src/Command.zig pkg/apple-sdk/build.zig; do grep -q visionos "$f" || { echo "[!] $f: visionos arm missing"; exit 1; }; done
 echo "[+] all visionos patches applied"

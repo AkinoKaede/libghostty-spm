@@ -113,7 +113,11 @@ to move back.
 - `0007-disable-inspector.sh` — `inspector` build option gating dcimgui
   (marker `LIBGHOSTTY_SPM_INSPECTOR_DISABLE`).
 - `0008-macos-metal-texture-storage.sh` — choose MTLTexture storage by GPU
-  family: shared on Apple GPUs, managed on Intel and AMD.
+  family: shared on Apple GPUs, managed on Intel and AMD. The field lives in
+  `renderer/metal/Device.zig` (upstream `40d5b860d2` moved device selection
+  there, shared by every renderer); `Metal.zig`'s four texture sites read it,
+  its one buffer site keeps `default_storage_mode`. Anchored edits plus a
+  count tripwire on those sites (marker `LIBGHOSTTY_SPM_TEXTURE_STORAGE_PATCH`).
 - `0009-libcxx-apple-availability.sh` — force libc++ Apple availability
   annotations in highway, simdutf, and `src/simd`, so a symbol newer than the
   deployment floor (`__libcpp_verbose_abort`) fails at compile time instead of
@@ -140,7 +144,8 @@ to move back.
   learns the `xros` / `xrsimulator` SDKs and the Metal compiler's
   `-mtargetos=xros<ver>[-simulator]` flag (there is no
   `-mxros-version-min`), `Config.zig` gets a 1.0 minimum OS version, and
-  `Metal.zig`, `IOSurfaceLayer.zig`, `coretext.zig`, `pty.zig` (NullPty),
+  `Metal.zig`, `metal/Device.zig` (the storage-mode and `chooseDevice`
+  arms), `IOSurfaceLayer.zig`, `coretext.zig`, `pty.zig` (NullPty),
   `os/{desktop,homedir,open}.zig`, `config/theme.zig`, `input/keycodes.zig`,
   `cli/tui.zig`, `Command.zig`, and `pkg/apple-sdk` each get `.visionos`
   beside `.ios` (marker `LIBGHOSTTY_SPM_VISIONOS_PATCH`). Needs the Zig std
