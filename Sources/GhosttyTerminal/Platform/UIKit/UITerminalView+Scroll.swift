@@ -32,6 +32,8 @@
     struct MomentumScrollState {
         var displayLink: CADisplayLink?
         var velocity: CGPoint = .zero
+        var scrollsLocally = false
+        var localRow: CGFloat = 0
     }
 
     extension UITerminalView {
@@ -41,6 +43,7 @@
             guard pointer.session.reported == nil else { return }
             switch gesture.state {
             case .began:
+                dismissTouchSelection()
                 stopMomentumScrolling()
             case .changed, .ended:
                 // `.ended` still carries whatever moved since the last
@@ -79,12 +82,28 @@
         @objc func handleTouchScrollGesture(
             _ gesture: UIPanGestureRecognizer
         ) {
+            #if !targetEnvironment(macCatalyst)
+                if usesInlineTextSelection {
+                    if gesture.state == .began {
+                        touchSelection.panUsesSelection = touchSelection.range != nil && gesture.numberOfTouches == 1
+                        momentumScroll.scrollsLocally = gesture.numberOfTouches == 2
+                        momentumScroll.localRow = CGFloat(touchViewportOffset)
+                    }
+                    if touchSelection.panUsesSelection {
+                        handleTouchSelectionPan(gesture)
+                        return
+                    }
+                }
+            #endif
             switch gesture.state {
             case .began:
                 guard pointer.session.reported == nil else { return }
                 #if !targetEnvironment(macCatalyst)
                     softwareKeyboard.tapCandidateArmed = false
                 #endif
+                if !usesInlineTextSelection {
+                    dismissTouchSelection()
+                }
                 TerminalDebugLog.log(.input, "touch scroll began")
                 stopMomentumScrolling()
 
@@ -97,12 +116,10 @@
                     "touch scroll changed translation=\(String(format: "%.2f", translation.x))x\(String(format: "%.2f", translation.y))"
                 )
 
-                let scrollMods = TerminalScrollModifiers(precision: true)
-                surface?.sendMouseScroll(
-                    x: Double(translation.x * Self.touchScrollMultiplier),
-                    y: Double(translation.y * Self.touchScrollMultiplier),
-                    mods: scrollMods.rawValue
-                )
+                if usesInlineTextSelection, !momentumScroll.scrollsLocally {
+                    sendPointerPosition(at: gesture.location(in: self))
+                }
+                scrollTouchContent(by: translation, momentum: .none)
 
             case .ended:
                 guard pointer.session.reported == nil else { return }
@@ -111,7 +128,9 @@
                     .input,
                     "touch scroll ended velocity=\(String(format: "%.2f", velocity.x))x\(String(format: "%.2f", velocity.y))"
                 )
-                startMomentumScrolling(velocity: velocity)
+                if !usesInlineTextSelection || momentumScroll.scrollsLocally || surface?.isMouseCaptured != true {
+                    startMomentumScrolling(velocity: velocity)
+                }
 
             case .cancelled, .failed:
                 TerminalDebugLog.log(.input, "touch scroll cancelled")
@@ -120,6 +139,24 @@
             default:
                 break
             }
+        }
+
+        func scrollTouchContent(by delta: CGPoint, momentum: TerminalScrollModifiers.Momentum) {
+            if usesInlineTextSelection, momentumScroll.scrollsLocally {
+                guard let metrics = surface?.size(), let bar = core.bridge.scrollbar else { return }
+                let cellHeight = CGFloat(metrics.cellHeightPixels) / resolvedDisplayScale()
+                guard cellHeight > 0 else { return }
+                momentumScroll.localRow = min(
+                    max(0, CGFloat(bar.total) - CGFloat(bar.len)),
+                    max(0, momentumScroll.localRow - delta.y / cellHeight)
+                )
+                _ = surface?.scrollToRow(UInt(momentumScroll.localRow.rounded()))
+                core.requestImmediateTick()
+                return
+            }
+            let multiplier = Self.touchScrollMultiplier
+            let mods = TerminalScrollModifiers(precision: true, momentum: momentum)
+            surface?.sendMouseScroll(x: Double(delta.x * multiplier), y: Double(delta.y * multiplier), mods: mods.rawValue)
         }
 
         func startMomentumScrolling(velocity: CGPoint) {
@@ -131,8 +168,7 @@
                 "momentum start velocity=\(String(format: "%.2f", velocity.x))x\(String(format: "%.2f", velocity.y))"
             )
 
-            let mods = TerminalScrollModifiers(precision: true, momentum: .began)
-            surface?.sendMouseScroll(x: 0, y: 0, mods: mods.rawValue)
+            scrollTouchContent(by: .zero, momentum: .began)
 
             let link = CADisplayLink(
                 target: self,
@@ -151,8 +187,8 @@
             momentumScroll.velocity.x *= decay
             momentumScroll.velocity.y *= decay
 
-            let deltaX = momentumScroll.velocity.x * dt * Self.touchScrollMultiplier
-            let deltaY = momentumScroll.velocity.y * dt * Self.touchScrollMultiplier
+            let deltaX = momentumScroll.velocity.x * dt
+            let deltaY = momentumScroll.velocity.y * dt
 
             if abs(momentumScroll.velocity.x) < 50, abs(momentumScroll.velocity.y) < 50 {
                 stopMomentumScrolling()
@@ -164,12 +200,7 @@
                 "momentum frame velocity=\(String(format: "%.2f", momentumScroll.velocity.x))x\(String(format: "%.2f", momentumScroll.velocity.y)) delta=\(String(format: "%.2f", deltaX))x\(String(format: "%.2f", deltaY))"
             )
 
-            let mods = TerminalScrollModifiers(precision: true, momentum: .changed)
-            surface?.sendMouseScroll(
-                x: Double(deltaX),
-                y: Double(deltaY),
-                mods: mods.rawValue
-            )
+            scrollTouchContent(by: CGPoint(x: deltaX, y: deltaY), momentum: .changed)
         }
 
         func stopMomentumScrolling(sendTerminalEndEvent: Bool = true) {
@@ -177,8 +208,7 @@
             TerminalDebugLog.log(.input, "momentum stop")
 
             if sendTerminalEndEvent {
-                let mods = TerminalScrollModifiers(precision: true, momentum: .none)
-                surface?.sendMouseScroll(x: 0, y: 0, mods: mods.rawValue)
+                scrollTouchContent(by: .zero, momentum: .none)
             }
 
             momentumScroll.displayLink?.invalidate()

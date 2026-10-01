@@ -30,6 +30,8 @@
             switch gesture.state {
             case .began:
                 softwareKeyboard.tapCandidateArmed = false
+                stopMomentumScrolling()
+                dismissTouchSelection()
                 fontZoom.lastPinchScale = gesture.scale
                 TerminalDebugLog.log(
                     .actions,

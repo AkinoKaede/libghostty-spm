@@ -136,13 +136,13 @@
             let carriageReturn = "\r"
             carriageReturn.withCString { ptr in
                 keyEvent.text = ptr
-                surface?.sendKeyEvent(keyEvent)
+                sendInputKeyEvent(keyEvent)
             }
             // The matching release, so a kitty-protocol program with event
             // reporting never sees Return held down.
             keyEvent.action = GHOSTTY_ACTION_RELEASE
             keyEvent.text = nil
-            surface?.sendKeyEvent(keyEvent)
+            sendInputKeyEvent(keyEvent)
         }
         #endif
 
@@ -183,11 +183,11 @@
             let delete = "\u{7F}"
             delete.withCString { ptr in
                 keyEvent.text = ptr
-                surface?.sendKeyEvent(keyEvent)
+                sendInputKeyEvent(keyEvent)
             }
             keyEvent.action = GHOSTTY_ACTION_RELEASE
             keyEvent.text = nil
-            surface?.sendKeyEvent(keyEvent)
+            sendInputKeyEvent(keyEvent)
         }
 
         // MARK: - UITextInput Marked Text

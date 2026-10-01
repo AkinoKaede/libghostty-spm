@@ -14,8 +14,7 @@
         /// hardware keys to UIKit's text machinery, which consumes most
         /// Ctrl+letter chords (its emacs-style bindings) before
         /// `pressesBegan` ever fires. Registering them as key commands with
-        /// priority over system behavior is the only reliable claim — the
-        /// same route Blink and SwiftTerm take.
+        /// priority over system behavior lets the terminal receive those chords.
         private static let controlKeyCommandInputs: [String] = {
             var inputs = (UInt8(ascii: "a") ... UInt8(ascii: "z")).map {
                 String(UnicodeScalar($0))
@@ -107,10 +106,7 @@
             )
             // A chord, not typing: it closes an open composition the way a
             // hardware press would, and takes the shared key path.
-            if inputHandler.hasMarkedText {
-                inputHandler.unmarkText()
-            }
-            _ = surface?.sendKey(press)
+            _ = sendInputKey(press)
         }
 
         /// The Escape command's action: the key goes to the surface as a
@@ -126,7 +122,7 @@
                 .input,
                 "uikit key command input=escape mods=0x\(String(command.modifierFlags.rawValue, radix: 16))"
             )
-            _ = surface?.sendKey(TerminalKeyPress(
+            _ = sendInputKey(TerminalKeyPress(
                 .escape,
                 modifiers: TerminalInputModifiers(from: command.modifierFlags)
             ))
