@@ -99,6 +99,7 @@
 
         private func suspendForBackground() {
             stopMomentumScrolling(sendTerminalEndEvent: false)
+            dismissTouchSelection()
             #if !targetEnvironment(macCatalyst)
                 stopKeyRepeat()
             #endif
@@ -173,6 +174,7 @@
                 // The surface survives on purpose: this detach may be a
                 // cover's temporary one, and the view's own teardown frees
                 // the surface when the terminal really goes away.
+                dismissTouchSelection()
                 cancelReportedPointerButton()
                 // The momentum link retains this view and would keep
                 // scrolling a detached surface until the fling decays.
@@ -189,6 +191,7 @@
             )
             updateSublayerFrames()
             core.fitToSize()
+            refreshTouchSelection()
         }
 
         /// The scale used when neither the window nor the trait collection can
@@ -257,7 +260,8 @@
             layer.masksToBounds = true
             guard let sublayers = layer.sublayers else { return }
             let frame = sublayerFrame
-            for sublayer in sublayers {
+            // UIKit owns the layers of subviews used for text input and menus.
+            for sublayer in sublayers where !(sublayer.delegate is UIView) {
                 sublayer.frame = frame
                 sublayer.contentsScale = scale
             }
@@ -267,7 +271,7 @@
             let scale = resolvedDisplayScale()
             guard let sublayers = layer.sublayers else { return }
             let frame = sublayerFrame
-            for sublayer in sublayers {
+            for sublayer in sublayers where !(sublayer.delegate is UIView) {
                 if sublayer.contentsScale != scale {
                     sublayer.contentsScale = scale
                 }

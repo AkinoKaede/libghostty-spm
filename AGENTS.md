@@ -456,6 +456,29 @@ write-clipboard callback for `.osc52Write`; tests in
 
 ### iOS Long-Press Text Selection
 
+When `usesInlineTextSelection` is true, `+TouchGestures`, `+TouchSelection`
+and `+TouchMenu` own direct-touch selection. Long press (0.7 s) presents a
+native `UIEditMenuInteraction`; double/triple taps select a word/row, and a
+single tap clears selection or dismisses its menu; otherwise it sends the
+terminal click before toggling the keyboard, including in mouse-captured TUIs.
+One-finger pans extend an active selection around a fixed endpoint; two-finger
+pans scroll local history using `scrollToRow`, without reporting mouse events.
+`TouchSelectionState` owns this state. Selection reads exact screen cells and
+paints an overlay; it never synthesizes mouse drags. Copy clears the selection.
+UIKit owns menu folding, overflow and expansion. Preserve its supplied AutoFill
+menu; override the independent `touchMenuItems(for:)` and
+`touchSelectionMenuItems(for:)` methods before/after selection. Like the AppKit
+menu hook, each returns default actions that the host can localize by identifier
+(`terminal.copy`, `terminal.paste`, `terminal.select`, `terminal.selectAll`) and
+extend. The contexts carry `systemMenuItems`, and the default return values include
+those system menus after the terminal actions. The host's final return value is
+presented as-is; the wrapper does not append AutoFill again. Preserve returned
+elements unchanged; the host owns grouping, ordering and separators. Paste remains
+on `pasteFromPasteboard`. The example UI tests cover
+the gesture and menu contracts.
+
+The following legacy path applies when the inline mode is disabled.
+
 Long-press ≥0.5s on `UITerminalView` (single-finger direct touch, iOS only — Catalyst excluded; `handleLongPressForSelection` in `+Interaction`) triggers `TerminalSurfaceTextSelectionRequestDelegate.terminalDidRequestTextSelection(_:)`. The host receives a `TerminalTextSelectionRequest` (`text`: viewport snapshot, `anchorRange`: UTF-16 `NSRange?` for pre-selection, `sourcePoint`) and is expected to present a host UI (e.g. UITextView sheet). Word detection uses `ghostty_surface_quicklook_word` via `surface.quicklookWord()` (Apple-only); `TerminalSelectionAnchor.resolveRange` (`Surface/`) maps the result to an `NSRange` via NSString UTF-16 calculations from the word's `offsetStart` (ghostty's linear viewport cell index, `row * columns + column`) and `surface.size().columns`; same-row duplicate occurrences are disambiguated by that column. The `tl_px_x/y` fields are not used: `tl_px_y` is the row's text baseline plus the top window padding, not the cell top, so dividing it by the cell height lands one row low once the padding exceeds the baseline offset. Prefix CJK full-width characters can shift cell-vs-UTF-16 columns and degrade disambiguation (ASCII-only correct, best-effort otherwise). The recognizer is gated by `gestureRecognizerShouldBegin` to stay inactive when no host has opted in: the delegate must adopt the protocol, and for a `TerminalViewState` delegate (which adopts it unconditionally) `onTextSelectionRequest` must be set (`activeTextSelectionDelegate`). Only the `inMemory` backend is supported — the snapshot comes from `InMemoryTerminalSession.readViewportText()`, and any other backend logs and returns.
 
 In iPhone UI tests, synthesize ordinary terminal taps as explicitly short presses and verify `hasKeyboardFocus` before `typeText`; a loaded hosted runner can stretch `tap()` long enough for the selection recognizer to present its sheet. Keep the ordinary XCTest tap and typing path on iPad, where short presses do not reliably publish keyboard focus through accessibility.

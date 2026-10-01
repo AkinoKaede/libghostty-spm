@@ -27,25 +27,23 @@
         /// through ``sendKey(_:)``. False with no surface yet.
         @discardableResult
         public func paste(text: String) -> Bool {
-            surface?.paste(text: text) ?? false
+            dismissTouchSelection()
+            return surface?.paste(text: text) ?? false
         }
 
         /// Presses and releases a key, as if typed on a hardware keyboard —
-        /// see ``TerminalSurface/sendKey(_:)``. An open IME composition is
-        /// committed first, and armed sticky Ctrl/Alt/Cmd apply to the key
-        /// and are spent by it, exactly as for a tap on the bundled
-        /// accessory bar. False with no surface yet.
+        /// see ``TerminalSurface/sendKey(_:)``. Armed sticky Ctrl/Alt/Cmd
+        /// apply to the key and are spent by it, as on the bundled accessory
+        /// bar. Cmd+C copies an inline selection; ordinary input clears it
+        /// and commits any open IME composition. False with no surface yet.
         @discardableResult
         public func sendKey(_ press: TerminalKeyPress) -> Bool {
-            guard let surface else { return false }
-            if inputHandler.hasMarkedText {
-                inputHandler.unmarkText()
-            }
+            guard surface != nil else { return false }
             var press = press
             #if !targetEnvironment(macCatalyst)
                 press.modifiers.formUnion(stickyModifiers.consumeForNextKey())
             #endif
-            return surface.sendKey(press)
+            return sendInputKey(press)
         }
 
         /// ``sendKey(_:)`` for a key and its modifiers: `sendKey(.enter)`,

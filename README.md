@@ -197,6 +197,13 @@ give a view (`hitTest`, `canBecomeFirstResponder`) plus
 click has been sent — override it to keep a tap from raising or dismissing
 the software keyboard.
 
+With inline selection enabled, a single tap first clears an active selection
+or dismisses an open edit menu. Otherwise it sends the terminal click and
+toggles the software keyboard, including in mouse-reporting applications.
+Double/triple taps select a word/row and long press opens the edit menu;
+those gestures do not also toggle the keyboard. Pinch zoom stays available.
+Hosts should not add a second tap-to-focus handler around the terminal view.
+
 ## Notes
 
 - `TerminalViewState` is the SwiftUI state container.

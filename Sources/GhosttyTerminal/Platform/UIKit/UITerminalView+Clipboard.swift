@@ -11,6 +11,22 @@
             copySelectedTextToPasteboard()
         }
 
+        @IBAction override open func select(_ sender: Any?) {
+            guard usesInlineTextSelection, let point = touchSelection.menuPoint else {
+                super.select(sender)
+                return
+            }
+            beginTouchSelection(at: point, selectAll: false)
+        }
+
+        @IBAction override open func selectAll(_ sender: Any?) {
+            guard usesInlineTextSelection, let point = touchSelection.menuPoint else {
+                super.selectAll(sender)
+                return
+            }
+            beginTouchSelection(at: point, selectAll: true)
+        }
+
         /// A paste has to reach the surface as a paste.
         ///
         /// `UIResponder`'s default implementation for a `UIKeyInput` conformer
@@ -38,6 +54,7 @@
         /// program's own clipboard read must never write a file — so that
         /// work belongs to the host's button, not the callback.
         func pasteFromPasteboard() {
+            dismissTouchSelection()
             if inputHandler.hasMarkedText {
                 inputHandler.unmarkText()
             }
@@ -59,8 +76,12 @@
             _ action: Selector,
             withSender sender: Any?
         ) -> Bool {
+            if usesInlineTextSelection, action == #selector(select(_:)) || action == #selector(selectAll(_:)) {
+                return surface != nil && touchSelection.menuPoint != nil
+                    && (action == #selector(selectAll(_:)) || touchSelection.range == nil)
+            }
             if action == #selector(copy(_:)) {
-                return surface?.hasSelection() == true
+                return touchSelection.range != nil || surface?.hasSelection() == true
             }
             if action == #selector(paste(_:)) {
                 return TerminalPasteboardContent.hasContent()
@@ -74,6 +95,11 @@
             _: UIContextMenuInteraction,
             configurationForMenuAtLocation location: CGPoint
         ) -> UIContextMenuConfiguration? {
+            #if !targetEnvironment(macCatalyst)
+                if usesInlineTextSelection, touchSelection.lastInputWasDirect, pointer.session.reported == nil {
+                    return nil
+                }
+            #endif
             sendPointerPosition(at: location)
             guard TerminalPointerPolicy.shouldPresentHostSecondaryMenu(
                 mouseCaptured: surface?.isMouseCaptured == true

@@ -67,7 +67,7 @@
             usage: UInt16,
             additionalMods: TerminalInputModifiers = []
         ) {
-            guard let surface else { return }
+            guard surface != nil else { return }
 
             if inputHandler.hasMarkedText {
                 inputHandler.unmarkText()
@@ -79,7 +79,7 @@
                 for: TerminalHardwareKeyRouter.ghosttyKey(forUIKitUsage: usage)
             )
             event.mods = additionalMods.ghosttyMods
-            _ = surface.sendKeyEvent(event)
+            _ = sendInputKeyEvent(event)
             sendSyntheticRelease(for: event)
         }
 
@@ -87,11 +87,11 @@
         /// kitty protocol with event reporting never sees the key held
         /// down — the same pairing `TerminalSurface.sendKey` guarantees.
         func sendSyntheticRelease(for press: ghostty_input_key_s) {
-            guard let surface else { return }
+            guard surface != nil else { return }
             var release = press
             release.action = GHOSTTY_ACTION_RELEASE
             release.text = nil
-            _ = surface.sendKeyEvent(release)
+            _ = sendInputKeyEvent(release)
         }
 
         @discardableResult
@@ -104,7 +104,7 @@
         @discardableResult
         func handleStickyCommittedText(_ text: String) -> Bool {
             handleStickyTextInput(text) { [weak self] text in
-                self?.surface?.paste(text: text)
+                self?.paste(text: text)
             }
         }
 
@@ -155,7 +155,7 @@
                 inputHandler.unmarkText()
             }
 
-            guard let surface else { return }
+            guard surface != nil else { return }
             var event = ghostty_input_key_s()
             event.action = GHOSTTY_ACTION_PRESS
             event.mods = modifiers.ghosttyMods
@@ -167,7 +167,7 @@
             // The kitty encoder keys `CSI <cp>;<mods>u` off this and drops
             // the press without it (see "Key Path vs Text Path" in AGENTS.md).
             event.unshifted_codepoint = scalar.value
-            _ = surface.sendKeyEvent(event)
+            _ = sendInputKeyEvent(event)
             sendSyntheticRelease(for: event)
         }
 
@@ -185,7 +185,7 @@
             _ text: String,
             modifiers: TerminalInputModifiers
         ) -> Bool {
-            guard let surface else { return false }
+            guard surface != nil else { return false }
 
             if inputHandler.hasMarkedText {
                 inputHandler.unmarkText()
@@ -206,10 +206,10 @@
             if !modifiers.contains(.super_) {
                 text.withCString { ptr in
                     event.text = ptr
-                    _ = surface.sendKeyEvent(event)
+                    _ = sendInputKeyEvent(event)
                 }
             } else {
-                _ = surface.sendKeyEvent(event)
+                _ = sendInputKeyEvent(event)
             }
             sendSyntheticRelease(for: event)
 

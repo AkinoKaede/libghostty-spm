@@ -16,8 +16,16 @@ import XCTest
 
         override func setUpWithError() throws {
             continueAfterFailure = false
+            if ProcessInfo.processInfo.environment["LIBGHOSTTY_INLINE_SELECTION"] == "0",
+               name.contains("testInline")
+            {
+                throw XCTSkip("Inline selection is disabled in this test pass")
+            }
             app = XCUIApplication()
             app.launchArguments = ["--ui-testing"]
+            if ProcessInfo.processInfo.environment["LIBGHOSTTY_INLINE_SELECTION"] != "1" {
+                app.launchArguments.append("--legacy-selection")
+            }
             installSystemAlertHandler()
             #if !targetEnvironment(macCatalyst)
                 XCUIDevice.shared.orientation = launchOrientation
@@ -26,7 +34,9 @@ import XCTest
         }
 
         override func tearDownWithError() throws {
-            capture("final-state")
+            if app != nil {
+                capture("final-state")
+            }
             #if !targetEnvironment(macCatalyst)
                 if XCUIDevice.shared.orientation != launchOrientation {
                     XCUIDevice.shared.orientation = launchOrientation
@@ -60,7 +70,9 @@ import XCTest
         func testBackgroundForegroundKeepsTerminalUsable() throws {
             let terminal = try requireTerminalInteractionTarget()
             typeTerminalText("echo before-background\n", in: terminal)
-            waitForOutputLine("before-background")
+            // A fresh hosted simulator can finish its first keyboard delivery
+            // after typeText returns. Wait for the output before backgrounding.
+            waitForOutputLine("before-background", timeout: 20)
 
             for cycle in 1 ... 3 {
                 sendAppToBackgroundAndBack()
@@ -124,11 +136,14 @@ import XCTest
                 dragWindowLeftEdge(window, by: 240)
                 waitForFrameWidth(of: window) { $0 < originalWidth - 100 }
                 let narrowed = try XCTUnwrap(terminalGridSize(in: terminal))
+                let narrowedWidth = window.frame.width
                 XCTAssertLessThan(narrowed.columns, original.columns)
                 capture("window-narrowed")
 
                 dragWindowLeftEdge(window, by: -240)
-                waitForFrameWidth(of: window) { $0 > originalWidth - 20 }
+                // The window manager can leave screen-edge margins when growing
+                // back. Verify both resize directions without requiring the old frame.
+                waitForFrameWidth(of: window) { $0 > narrowedWidth + 100 }
                 let restored = try XCTUnwrap(terminalGridSize(in: terminal))
                 XCTAssertGreaterThan(restored.columns, narrowed.columns)
                 typeTerminalText("echo after-resize\n", in: terminal)
@@ -252,8 +267,8 @@ import XCTest
             return nil
         }
 
-        private func waitForOutputLine(_ line: String) {
-            waitForViewport("output line \(line)") {
+        private func waitForOutputLine(_ line: String, timeout: TimeInterval = 8) {
+            waitForViewport("output line \(line)", timeout: timeout) {
                 Self.outputLines(of: $0).contains(line)
             }
         }
@@ -315,12 +330,16 @@ import XCTest
                 app.activate()
                 XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 5))
             #else
-                XCUIDevice.shared.press(.home)
-                let backgrounded = XCTNSPredicateExpectation(
-                    predicate: NSPredicate(format: "state != %d", XCUIApplication.State.runningForeground.rawValue),
-                    object: app
-                )
-                XCTAssertEqual(XCTWaiter.wait(for: [backgrounded], timeout: 8), .completed)
+                var result = XCTWaiter.Result.timedOut
+                for _ in 1 ... 2 where result != .completed {
+                    XCUIDevice.shared.press(.home)
+                    let backgrounded = XCTNSPredicateExpectation(
+                        predicate: NSPredicate(format: "state != %d", XCUIApplication.State.runningForeground.rawValue),
+                        object: app
+                    )
+                    result = XCTWaiter.wait(for: [backgrounded], timeout: 5)
+                }
+                XCTAssertEqual(result, .completed)
                 app.activate()
                 XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
             #endif
@@ -336,9 +355,13 @@ import XCTest
 
         #if targetEnvironment(macCatalyst)
             private func dragWindowLeftEdge(_ window: XCUIElement, by dx: CGFloat) {
-                let edge = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
-                    .withOffset(CGVector(dx: 1, dy: 0))
-                edge.press(forDuration: 0.3, thenDragTo: edge.withOffset(CGVector(dx: dx, dy: 0)))
+                let originalWidth = window.frame.width
+                for _ in 0 ..< 2 {
+                    let edge = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+                        .withOffset(CGVector(dx: 1, dy: 0))
+                    edge.press(forDuration: 0.3, thenDragTo: edge.withOffset(CGVector(dx: dx, dy: 0)))
+                    if abs(window.frame.width - originalWidth) > 20 { return }
+                }
             }
 
             private func waitForFrameWidth(of window: XCUIElement, _ condition: (CGFloat) -> Bool) {
@@ -349,6 +372,447 @@ import XCTest
                 }
                 XCTFail("Window width never changed as expected; now \(window.frame.width)")
             }
+        #endif
+
+        #if !targetEnvironment(macCatalyst)
+            func testInlineLongPressSelectionCopiesWithAccessoryCommand() throws {
+                app.terminate()
+                app.launchArguments = ["--ui-testing", "--ui-testing-copy-fixture"]
+                app.launch()
+                let terminal = try requireTerminalInteractionTarget()
+                waitForOutputLine("touch-copy-ready")
+                XCTAssertTrue(app.keys["c"].waitForExistence(timeout: 4))
+                XCTAssertTrue(app.keys["c"].isHittable)
+                pointerCell(in: terminal, column: 4).press(forDuration: 0.8)
+                XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
+                app.menuItems["Select"].tap()
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                let command = app.buttons["Command"]
+                XCTAssertTrue(command.waitForExistence(timeout: 4))
+                command.tap()
+                app.keys["c"].tap()
+                XCTAssertEqual(copiedSelectionText(in: terminal, timeout: 3), "touch-copy-ready")
+                XCTAssertFalse(app.menuItems["Copy"].exists)
+
+                // Copy spends the armed modifier; ordinary typing and the
+                // next Command shortcut must still reach the shell afterwards.
+                // The visible suffix confirms that delayed Space delivery has
+                // finished before arming Command for the next key.
+                tapSoftwareKeys("echo x")
+                waitForViewport("ordinary software keys committed") {
+                    Self.outputLines(of: $0).last?.hasSuffix("% echo x") == true
+                }
+                command.tap()
+                app.keys["v"].tap()
+                app.buttons["Return"].tap()
+                waitForOutputLine("xtouch-copy-ready")
+            }
+
+            func testInlinePublicKeyCopiesWithExplicitAndStickyCommand() throws {
+                for sticky in [false, true] {
+                    app.terminate()
+                    app.launchArguments = ["--ui-testing", "--ui-testing-copy-fixture", "--ui-testing-public-copy"]
+                    if sticky { app.launchArguments.append("--ui-testing-sticky-copy") }
+                    app.launch()
+                    let terminal = try requireTerminalInteractionTarget()
+                    waitForOutputLine("touch-copy-ready")
+                    pointerCell(in: terminal, column: 4).press(forDuration: 0.8)
+                    XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
+                    app.menuItems["Select"].tap()
+                    XCTAssertTrue(app.menuItems["Send Key"].waitForExistence(timeout: 4))
+                    app.menuItems["Send Key"].tap()
+                    XCTAssertEqual(copiedSelectionText(in: terminal, timeout: 3), "touch-copy-ready")
+                    XCTAssertFalse(app.menuItems["Copy"].exists)
+
+                    // A public key spends an armed modifier exactly once.
+                    tapSoftwareKeys("echo x")
+                    waitForViewport("ordinary software keys committed") {
+                        Self.outputLines(of: $0).last?.hasSuffix("% echo x") == true
+                    }
+                    app.buttons["Command"].tap()
+                    app.keys["v"].tap()
+                    app.buttons["Return"].tap()
+                    waitForOutputLine("xtouch-copy-ready")
+                }
+            }
+
+            func testInlineKeyCommandsAndAccessoryArrowsClearSelection() throws {
+                app.terminate()
+                app.launchArguments = ["--ui-testing", "--ui-testing-copy-fixture", "--ui-testing-key-commands"]
+                app.launch()
+                let terminal = try requireTerminalInteractionTarget()
+                waitForOutputLine("touch-copy-ready")
+                for input in ["arrow", "control", "escape"] {
+                    let point = pointerCell(in: terminal, column: 4)
+                    point.press(forDuration: 0.8)
+                    XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
+                    app.menuItems["Select"].tap()
+                    XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                    switch input {
+                    case "arrow": app.buttons["Left Arrow"].tap()
+                    case "control": revealNativeMenuItem("Send Control A").tap()
+                    default: revealNativeMenuItem("Send Escape").tap()
+                    }
+                    XCTAssertTrue(app.menuItems["Copy"].waitForNonExistence(timeout: 4))
+                    // Reopening must offer Select: dismissing the menu alone
+                    // would retain the range and offer Copy again.
+                    point.press(forDuration: 0.8)
+                    XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
+                    XCTAssertFalse(app.menuItems["Copy"].exists)
+                    terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.9)).tap()
+                }
+            }
+
+            func testInlineLongPressSelectionCopiesWithKeyboard() throws {
+                let terminal = try requireTerminalInteractionTarget()
+                typeTerminalText("clear\necho touch-copy-ready\n", in: terminal)
+                waitForOutputLine("touch-copy-ready")
+                pointerCell(in: terminal, column: 4).press(forDuration: 0.8)
+                XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
+                app.menuItems["Select"].tap()
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                XCTAssertTrue(waitForKeyboardFocus(in: terminal, timeout: 4))
+                app.typeKey("c", modifierFlags: .command)
+                XCTAssertTrue(app.menuItems["Copy"].waitForNonExistence(timeout: 4))
+                XCTAssertEqual(copiedSelectionText(in: terminal, timeout: 3), "touch-copy-ready")
+            }
+
+            func testInlineTouchSelectionKeepsKeyboardHidden() throws {
+                for capturesMouse in [false, true] {
+                    app.terminate()
+                    app.launchArguments = ["--ui-testing", "--ui-testing-hidden-selection"]
+                    if capturesMouse {
+                        app.launchArguments.append("--ui-testing-mouse-capture")
+                    }
+                    app.launch()
+                    let terminal = try requireTerminalInteractionTarget()
+                    waitForOutputLine("touch-copy-ready")
+                    XCTAssertFalse(app.keyboards.firstMatch.exists)
+
+                    let word = pointerCell(in: terminal, column: 4)
+                    for taps in [2, 3] {
+                        if taps == 2 {
+                            word.doubleTap()
+                        } else {
+                            terminal.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+                        }
+                        XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                        XCTAssertFalse(app.keyboards.firstMatch.exists)
+                        app.menuItems["Copy"].tap()
+                        XCTAssertTrue(app.menuItems["Copy"].waitForNonExistence(timeout: 4))
+                        XCTAssertEqual(copiedSelectionText(in: terminal, timeout: 3), "touch-copy-ready")
+                        XCTAssertFalse(app.keyboards.firstMatch.exists)
+                    }
+
+                    for action in ["Select", "Select All"] {
+                        word.press(forDuration: 0.8)
+                        XCTAssertTrue(app.menuItems[action].waitForExistence(timeout: 4))
+                        XCTAssertFalse(app.keyboards.firstMatch.exists)
+                        app.menuItems[action].tap()
+                        XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                        XCTAssertFalse(app.keyboards.firstMatch.exists)
+                        if action == "Select" {
+                            app.menuItems["Select All"].tap()
+                            XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                            XCTAssertFalse(app.keyboards.firstMatch.exists)
+                        }
+                        app.menuItems["Copy"].tap()
+                        XCTAssertTrue(app.menuItems["Copy"].waitForNonExistence(timeout: 4))
+                        XCTAssertTrue((copiedSelectionText(in: terminal, timeout: 3) ?? "").contains("touch-copy-ready"))
+                        XCTAssertFalse(app.keyboards.firstMatch.exists)
+                    }
+                }
+            }
+
+            func testInlineSelectionSwitchesBetweenTouchPointerAndKeyboard() throws {
+                guard isIPad else { throw XCTSkip("Pointer mixing requires iPad") }
+                app.terminate()
+                app.launchArguments = ["--ui-testing"]
+                app.launch()
+                let terminal = try requireTerminalInteractionTarget()
+                typeTerminalText("clear\necho mixed-input left middle right\n", in: terminal)
+                waitForOutputLine("mixed-input left middle right")
+                let word = pointerCell(in: terminal, column: 4)
+                word.doubleTap()
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.8)).click()
+                XCTAssertTrue(app.menuItems["Copy"].waitForNonExistence(timeout: 4))
+
+                typeTerminalText("clear\necho \(iPadPointerSelectionPrefix)\(expectedPointerSelection)\n", in: terminal)
+                waitForOutputLine("\(iPadPointerSelectionPrefix)\(expectedPointerSelection)")
+                dismissTerminalKeyboard(in: terminal)
+                let rightClick = dragIPadPointerSelection(in: terminal)
+                openCopyMenuAndCopySelection(in: terminal, screenshotName: "mixed-pointer-copy", rightClickCoordinate: rightClick)
+
+                typeTerminalText("clear\necho touch-copy-ready\n", in: terminal)
+                waitForOutputLine("touch-copy-ready")
+                pointerCell(in: terminal, column: 4).doubleTap()
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                XCTAssertTrue(waitForKeyboardFocus(in: terminal, timeout: 4))
+                app.typeKey("c", modifierFlags: .command)
+                XCTAssertTrue(app.menuItems["Copy"].waitForNonExistence(timeout: 4))
+                let copied = try XCTUnwrap(copiedSelectionText(in: terminal, timeout: 3))
+                XCTAssertEqual(copied, "touch-copy-ready")
+                typeTerminalText("echo ", in: terminal)
+                app.typeKey("v", modifierFlags: .command)
+                typeTerminalText("\n", in: terminal)
+                waitForViewport("pasted touch selection") {
+                    Self.outputLines(of: $0).filter { $0 == copied }.count == 2
+                }
+            }
+
+            func testInlinePinchChangesTheGridAndKeepsTypingUsable() throws {
+                app.terminate()
+                app.launchArguments = ["--ui-testing"]
+                app.launch()
+                let terminal = try requireTerminalInteractionTarget()
+                let original = try XCTUnwrap(terminalGridSize(in: terminal))
+                terminal.pinch(withScale: 1.4, velocity: 1.0)
+                let zoomed = try XCTUnwrap(waitForGridSize(in: terminal) { $0.columns < original.columns })
+                XCTAssertLessThan(zoomed.columns, original.columns)
+                typeTerminalText("echo after-pinch\n", in: terminal)
+                waitForOutputLine("after-pinch")
+            }
+
+            func testInlineSingleTapTogglesKeyboardAndKeepsNativeAccessory() throws {
+                app.terminate()
+                app.launchArguments = ["--ui-testing"]
+                app.launch()
+                let terminal = try requireTerminalInteractionTarget()
+                typeTerminalText("echo tap-keyboard\n", in: terminal)
+                XCTAssertTrue(app.buttons["Control"].exists)
+                tapTerminal(in: terminal)
+                let noFocus = NSPredicate(format: "hasKeyboardFocus == false")
+                expectation(for: noFocus, evaluatedWith: terminal)
+                waitForExpectations(timeout: 4)
+                XCTAssertFalse(app.buttons["Control"].isHittable)
+                capture("inline-keyboard-hidden")
+                tapTerminal(in: terminal)
+                XCTAssertTrue(waitForKeyboardFocus(in: terminal, timeout: 4))
+                XCTAssertTrue(app.buttons["Control"].waitForExistence(timeout: 4))
+                XCTAssertFalse(app.menuItems["Select"].exists)
+                capture("inline-keyboard-shown")
+            }
+
+            func testInlineSingleTapClosesMenuBeforeTogglingKeyboard() throws {
+                app.terminate()
+                app.launchArguments = ["--ui-testing"]
+                app.launch()
+                let terminal = try requireTerminalInteractionTarget()
+                typeTerminalText("echo menu-priority\n", in: terminal)
+                terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.15)).press(forDuration: 0.8)
+                XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
+                terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.8)).tap()
+                XCTAssertFalse(app.menuItems["Select"].exists)
+                XCTAssertTrue(waitForKeyboardFocus(in: terminal, timeout: 2))
+                tapTerminal(in: terminal)
+                expectation(for: NSPredicate(format: "hasKeyboardFocus == false"), evaluatedWith: terminal)
+                waitForExpectations(timeout: 4)
+            }
+
+            func testInlineSelectionMenuAndCopy() throws {
+                app.terminate()
+                app.launchArguments = ["--ui-testing", "--ui-testing-pasteboard", "--ui-testing-host-menu"]
+                app.launch()
+                let terminal = try requireTerminalInteractionTarget()
+                typeTerminalText("clear\n", in: terminal)
+                typeTerminalText("echo inline-selection 你好\n", in: terminal)
+                waitForOutputLine("inline-selection 你好")
+                let point = pointerCell(in: terminal, column: 4)
+                point.press(forDuration: 0.8)
+                XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4), app.debugDescription)
+                XCTAssertTrue(app.menuItems["Select All"].exists)
+                XCTAssertTrue(app.menuItems["Paste"].exists)
+                XCTAssertFalse(selectionTextView().exists)
+                capture("inline-selection-menu")
+                try assertSuppliedSystemMenuIsVisible()
+                XCTAssertTrue(revealNativeMenuItem("Select").exists)
+                capture("inline-selection-expanded")
+                revealNativeMenuItem("Select").tap()
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4), app.debugDescription)
+                XCTAssertTrue(app.menuItems["Select All"].exists)
+                XCTAssertTrue(app.menuItems["Paste"].exists)
+                capture("inline-selection-word")
+                let endHandle = pointerCell(in: terminal, column: "inline-selection".count, fraction: 0)
+                // Finish beyond the wide glyph so event interpolation cannot
+                // leave the handle just before its final cell.
+                let extended = pointerCell(in: terminal, column: "inline-selection".count + 8)
+                endHandle.press(forDuration: 0.1, thenDragTo: extended)
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                capture("inline-selection-drag")
+                app.menuItems["Copy"].tap()
+                XCTAssertEqual(copiedSelectionText(in: terminal, timeout: 2), "inline-selection 你好")
+                // Select again after Copy clears the selection, then expand and Select All.
+                point.press(forDuration: 0.8)
+                XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
+                app.menuItems["Select"].tap()
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                try assertSuppliedSystemMenuIsVisible()
+                XCTAssertTrue(revealNativeMenuItem("Copy").exists)
+                XCTAssertTrue(revealNativeMenuItem("Select All").exists)
+                capture("inline-selection-selected-expanded")
+                revealNativeMenuItem("Select All").tap()
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4), app.debugDescription)
+                capture("inline-selection-all")
+                app.menuItems["Copy"].tap()
+                XCTAssertTrue((copiedSelectionText(in: terminal, timeout: 2) ?? "").contains("inline-selection 你好"))
+
+                let output = app.descendants(matching: .any)["terminal.output"].firstMatch
+                let viewport = try XCTUnwrap(output.value as? String)
+                let nearestLine = try XCTUnwrap(
+                    viewport.components(separatedBy: .newlines)
+                        .last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                )
+                // Select from empty space below the prompt, then copy the nearest text row.
+                terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.8)).press(forDuration: 0.8)
+                XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
+                app.menuItems["Select"].tap()
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                app.menuItems["Copy"].tap()
+                let copiedLine = try XCTUnwrap(copiedSelectionText(in: terminal, timeout: 2))
+                XCTAssertEqual(
+                    copiedLine.trimmingCharacters(in: .whitespacesAndNewlines),
+                    nearestLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+
+            func testInlineMenuHidesUnavailablePasteAndProvidesHostActions() throws {
+                app.terminate()
+                app.launchArguments = ["--ui-testing", "--ui-testing-touch-menu"]
+                app.launch()
+                let terminal = try requireTerminalInteractionTarget()
+                typeTerminalText("clear\n", in: terminal)
+                typeTerminalText("echo inline-selection\n", in: terminal)
+                let point = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.025))
+                point.press(forDuration: 0.8)
+                XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
+                XCTAssertFalse(app.menuItems["Paste"].exists)
+                XCTAssertTrue(nativeMenuItem("Host Action").waitForExistence(timeout: 4))
+                XCTAssertFalse(nativeMenuItem("Inspect Selection").exists)
+                XCTAssertFalse(app.staticTexts["Paste"].exists)
+                try assertSuppliedSystemMenuIsVisible()
+                revealNativeMenuItem("Host Action").tap()
+                XCTAssertEqual(terminal.value as? String, "host:none")
+                point.press(forDuration: 0.8)
+                XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
+                app.menuItems["Select"].tap()
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                XCTAssertTrue(app.menuItems["Select All"].exists)
+                XCTAssertFalse(app.menuItems["Paste"].exists)
+                XCTAssertTrue(nativeMenuItem("Inspect Selection").waitForExistence(timeout: 4))
+                XCTAssertFalse(nativeMenuItem("Host Action").exists)
+                try assertSuppliedSystemMenuIsVisible()
+                XCTAssertFalse(app.staticTexts["Paste"].exists)
+                capture("inline-selection-host-menu")
+                revealNativeMenuItem("Inspect Selection").tap()
+                XCTAssertTrue((terminal.value as? String ?? "").hasPrefix("host:"))
+                XCTAssertNotEqual(terminal.value as? String, "host:none")
+            }
+
+            private func assertSuppliedSystemMenuIsVisible() throws {
+                let status = app.staticTexts["terminal.systemMenus"]
+                let count = try XCTUnwrap(Int(status.value as? String ?? ""))
+                log("system-menu-items", status.label)
+                // UIKit can supply an empty or deferred AutoFill menu on simulators.
+                // Concrete actions must survive both host override paths.
+                if count > 0 {
+                    XCTAssertTrue(revealNativeMenuItem("AutoFill").waitForExistence(timeout: 4), app.debugDescription)
+                } else {
+                    let attachment = XCTAttachment(
+                        string: "UIKit supplied no concrete AutoFill actions: \(status.label)"
+                    )
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
+            }
+
+            private func revealNativeMenuItem(_ title: String) -> XCUIElement {
+                // UIKit uses an expanded menu on newer systems and pages on
+                // older ones. Navigate its controls instead of assuming a layout.
+                for direction in [["Next Page", "Forward"], ["Back"]] {
+                    for _ in 0 ..< 4 {
+                        let item = nativeMenuItem(title)
+                        if item.exists && item.isHittable { return item }
+                        guard let next = direction.map({ app.buttons[$0] })
+                            .first(where: { $0.exists && $0.isHittable && $0.isEnabled })
+                        else { break }
+                        next.tap()
+                    }
+                }
+                return nativeMenuItem(title)
+            }
+
+            func testInlineDoubleTripleTapAndSelectionDismissal() throws {
+                app.terminate()
+                app.launchArguments = ["--ui-testing"]
+                app.launch()
+                let terminal = try requireTerminalInteractionTarget()
+                typeTerminalText("clear\n" + String(repeating: "echo alpha beta\n", count: 25), in: terminal)
+                let wordPoint = pointerCell(in: terminal, column: 1)
+                wordPoint.doubleTap()
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4), app.debugDescription)
+                app.menuItems["Copy"].tap()
+                let word = try XCTUnwrap(copiedSelectionText(in: terminal, timeout: 2))
+                XCTAssertFalse(word.contains(" "), word)
+                XCTAssertFalse(word.contains("\n"), word)
+                terminal.tap(withNumberOfTaps: 3, numberOfTouches: 1)
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4), app.debugDescription)
+                capture("inline-selection-row")
+                app.menuItems["Copy"].tap()
+                let row = try XCTUnwrap(copiedSelectionText(in: terminal, timeout: 2))
+                XCTAssertTrue(row.contains("alpha beta"), row)
+                wordPoint.doubleTap()
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.9)).tap()
+                XCTAssertFalse(app.menuItems["Copy"].exists)
+                XCTAssertTrue(waitForKeyboardFocus(in: terminal, timeout: 2))
+            }
+
+            func testInlineSelectionScrollsAtBothEdgesAndCopiesHistory() throws {
+                app.terminate()
+                app.launchArguments = ["--ui-testing"]
+                app.launch()
+                let terminal = try requireTerminalInteractionTarget()
+                let commands = (0 ..< 45).map { String(format: "echo history-%03d left middle right\n", $0) }.joined()
+                typeTerminalText("clear\n" + commands, in: terminal)
+                let output = app.descendants(matching: .any)["terminal.output"].firstMatch
+                func rows(in text: String) -> [Int] {
+                    text.components(separatedBy: "history-").dropFirst().compactMap { Int($0.prefix(3)) }
+                }
+                for edge in [0.003, 0.997] {
+                    let before = try XCTUnwrap(output.value as? String)
+                    let firstBefore = try XCTUnwrap(rows(in: before).min())
+                    terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).doubleTap()
+                    XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                    let start = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
+                    let end = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: edge))
+                    start.press(forDuration: 0.1, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 2)
+                    XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                    let after = try XCTUnwrap(output.value as? String)
+                    let firstAfter = try XCTUnwrap(rows(in: after).min())
+                    if edge < 0.5 {
+                        XCTAssertLessThan(firstAfter, firstBefore, after)
+                    } else {
+                        XCTAssertGreaterThan(firstAfter, firstBefore, after)
+                    }
+                    capture(edge < 0.5 ? "inline-scroll-top" : "inline-scroll-bottom")
+                    app.menuItems["Copy"].tap()
+                    let copied = try XCTUnwrap(copiedSelectionText(in: terminal, timeout: 2))
+                    let copiedRows = rows(in: copied)
+                    if edge < 0.5 {
+                        XCTAssertLessThan(try XCTUnwrap(copiedRows.min()), firstBefore, copied)
+                    } else {
+                        XCTAssertGreaterThan(try XCTUnwrap(copiedRows.max()), try XCTUnwrap(rows(in: before).max()), copied)
+                    }
+                }
+            }
+
+            private func nativeMenuItem(_ title: String) -> XCUIElement {
+                let compact = app.menuItems[title]
+                return compact.exists ? compact : app.buttons[title]
+            }
+
+
         #endif
 
         func testTerminalUserOperations() throws {
@@ -429,11 +893,17 @@ import XCTest
             #else
                 if isIPad {
                     longPressTerminal(in: terminal, offset: CGVector(dx: 0.35, dy: 0.18))
-                    XCTAssertTrue(selectionTextView().waitForExistence(timeout: 4))
-                    capture("15-long-press-selection")
-                    dismissSelectionSheet()
+                    if app.launchArguments.contains("--legacy-selection") {
+                        XCTAssertTrue(selectionTextView().waitForExistence(timeout: 4))
+                        capture("15-long-press-selection")
+                        dismissSelectionSheet()
+                    } else {
+                        XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
+                        tapTerminal(in: terminal)
+                        XCTAssertTrue(app.menuItems["Select"].waitForNonExistence(timeout: 4))
+                    }
 
-                    hideSoftwareKeyboardIfVisible()
+                    dismissTerminalKeyboard(in: terminal)
                     capture("16-ipad-keyboard-hidden-before-pointer")
                     let rightClick = dragIPadPointerSelection(in: terminal)
                     capture("17-ipad-pointer-selection")
@@ -444,7 +914,11 @@ import XCTest
                     )
                 } else {
                     longPressTerminal(in: terminal, offset: CGVector(dx: 0.35, dy: 0.18))
-                    XCTAssertTrue(selectionTextView().waitForExistence(timeout: 4))
+                    if app.launchArguments.contains("--legacy-selection") {
+                        XCTAssertTrue(selectionTextView().waitForExistence(timeout: 4))
+                    } else {
+                        XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
+                    }
                     capture("15-long-press-selection")
                 }
             #endif
@@ -471,6 +945,7 @@ import XCTest
 
         private func installSystemAlertHandler() {
             addUIInterruptionMonitor(withDescription: "System alert") { alert in
+                guard alert.elementType == .alert || alert.elementType == .sheet else { return false }
                 let preferredButtons = [
                     "OK", "Ok", "好", "确定", "允许", "Allow", "继续", "Continue",
                     "关闭", "Close", "Dismiss",
@@ -483,16 +958,7 @@ import XCTest
                     }
                 }
 
-                let firstButton = alert.buttons.firstMatch
-                guard firstButton.exists else { return false }
-                if firstButton.identifier == "InputSource" ||
-                    firstButton.label.hasPrefix("com.apple.inputmethod.")
-                {
-                    self.app.typeKey(.escape, modifierFlags: [])
-                    return true
-                }
-                self.activateInterruptionButton(firstButton)
-                return true
+                return false
             }
         }
 
@@ -567,27 +1033,22 @@ import XCTest
                 in element: XCUIElement,
                 timeout: TimeInterval
             ) -> Bool {
-                let expectation = XCTNSPredicateExpectation(
-                    predicate: NSPredicate(format: "hasKeyboardFocus == true"),
-                    object: element
-                )
+                let predicate = NSPredicate(format: "hasKeyboardFocus == true")
+                if predicate.evaluate(with: element) { return true }
+                let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
                 return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
             }
         #endif
 
         private func longPressTerminal(in element: XCUIElement, offset: CGVector? = nil) {
-            element.coordinate(withNormalizedOffset: offset ?? terminalInteractionOffset).press(forDuration: 0.7)
+            element.coordinate(withNormalizedOffset: offset ?? terminalInteractionOffset).press(forDuration: 0.8)
         }
 
         #if targetEnvironment(macCatalyst)
             private func dragPointerSelection(in element: XCUIElement) {
-                log(
-                    "pointer-selection-coordinates",
-                    "start=(0.008, 0.045), end=(0.42, 0.045), rightClick=(0.20, 0.045)"
-                )
-                let start = element.coordinate(withNormalizedOffset: CGVector(dx: 0.008, dy: 0.045))
-                let end = element.coordinate(withNormalizedOffset: CGVector(dx: 0.42, dy: 0.045))
-                start.press(forDuration: 0.1, thenDragTo: end)
+                let start = pointerCell(in: element, column: catalystPointerSelectionPrefix.count, fraction: 0)
+                let end = pointerCell(in: element, column: catalystPointerSelectionPrefix.count + expectedPointerSelection.count + 1)
+                start.press(forDuration: 0.3, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
             }
         #else
             private var isIPad: Bool {
@@ -604,39 +1065,57 @@ import XCTest
             /// screen-absolute coordinate so all events target the same spot —
             /// the text itself does not move when the view shrinks.
             private func dragIPadPointerSelection(in element: XCUIElement) -> XCUICoordinate {
-                let frame = element.frame
-                log(
-                    "ipad-pointer-selection-coordinates",
-                    "frame=\(frame) command=echo \(iPadPointerSelectionPrefix)\(expectedPointerSelection) start=(0.015, 0.035), end=(0.205, 0.035), rightClick=(0.10, 0.035)"
-                )
-                let start = screenCoordinate(in: frame, dx: 0.015, dy: 0.035)
-                let end = screenCoordinate(in: frame, dx: 0.205, dy: 0.035)
-                let rightClick = screenCoordinate(in: frame, dx: 0.10, dy: 0.035)
-                start.click(forDuration: 0.1, thenDragTo: end)
+                let start = pointerCell(in: element, column: iPadPointerSelectionPrefix.count, fraction: 0.25)
+                // Finish in the empty cells after the text so pointer interpolation
+                // cannot stop just before the last character.
+                let end = pointerCell(in: element, column: iPadPointerSelectionPrefix.count + expectedPointerSelection.count + 1)
+                let rightClick = pointerCell(in: element, column: iPadPointerSelectionPrefix.count + expectedPointerSelection.count / 2)
+                start.click(forDuration: 0.1, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
                 return rightClick
             }
 
-            private func screenCoordinate(
-                in frame: CGRect,
-                dx: CGFloat,
-                dy: CGFloat
-            ) -> XCUICoordinate {
-                app.coordinate(withNormalizedOffset: .zero).withOffset(
-                    CGVector(
-                        dx: frame.minX + frame.width * dx,
-                        dy: frame.minY + frame.height * dy
-                    )
-                )
-            }
-
-            private func hideSoftwareKeyboardIfVisible() {
-                let hideKeyboard = app.buttons["Hide keyboard"].firstMatch
-                if hideKeyboard.waitForExistence(timeout: 1), hideKeyboard.isHittable {
-                    hideKeyboard.tap()
-                    XCTAssertFalse(hideKeyboard.waitForExistence(timeout: 2))
+            private func tapSoftwareKeys(_ text: String) {
+                for character in text {
+                    let key = String(character)
+                    // iPad's full keyboard labels Space with a literal space.
+                    let element = key == " " && app.keys["space"].exists ? app.keys["space"] : app.keys[key]
+                    XCTAssertTrue(element.waitForExistence(timeout: 4))
+                    element.tap()
                 }
             }
+
+            private func dismissTerminalKeyboard(in element: XCUIElement) {
+                // Hardware input can retain focus while the software keyboard is hidden.
+                guard app.keys["q"].exists, app.keys["q"].isHittable else { return }
+                let unfocused = NSPredicate(format: "hasKeyboardFocus == false")
+                tapTerminal(in: element)
+                let hidden = XCTNSPredicateExpectation(predicate: unfocused, object: element)
+                XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 4), .completed)
+            }
         #endif
+
+        private func pointerCell(in element: XCUIElement, column: Int, fraction: CGFloat = 0.5) -> XCUICoordinate {
+            let geometry = app.staticTexts["terminal.grid"]
+            XCTAssertTrue(geometry.waitForExistence(timeout: 4))
+            let value = geometry.value as? String ?? ""
+            let numbers = value.split(whereSeparator: { !$0.isNumber && $0 != "." }).compactMap { Double($0) }
+            guard numbers.count == 3 else {
+                XCTFail("Missing cell geometry: \(value)")
+                return element.coordinate(withNormalizedOffset: .zero)
+            }
+            let offset = CGVector(
+                dx: numbers[2] + (CGFloat(column) + fraction) * numbers[0],
+                dy: numbers[2] + 1.5 * numbers[1]
+            )
+            #if targetEnvironment(macCatalyst)
+                return element.coordinate(withNormalizedOffset: .zero).withOffset(offset)
+            #else
+                let frame = element.frame
+                return app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                    dx: frame.minX + offset.dx, dy: frame.minY + offset.dy
+                ))
+            #endif
+        }
 
         private func openCopyMenuAndCopySelection(
             in element: XCUIElement,
@@ -649,9 +1128,11 @@ import XCTest
                 log("pointer-copy-menu-coordinate", "screen-absolute right click from drag snapshot")
                 coordinate = rightClickCoordinate
             } else {
-                let offset = CGVector(dx: 0.20, dy: 0.045)
-                log("pointer-copy-menu-coordinate", "frame=\(element.frame) rightClick=(\(offset.dx), \(offset.dy))")
-                coordinate = element.coordinate(withNormalizedOffset: offset)
+                #if targetEnvironment(macCatalyst)
+                    coordinate = pointerCell(in: element, column: catalystPointerSelectionPrefix.count + expectedPointerSelection.count / 2)
+                #else
+                    coordinate = pointerCell(in: element, column: iPadPointerSelectionPrefix.count + expectedPointerSelection.count / 2)
+                #endif
             }
             coordinate.rightClick()
             let copy = copyMenuItem()
@@ -688,7 +1169,7 @@ import XCTest
         private func copiedSelectionText(in element: XCUIElement, timeout: TimeInterval) -> String? {
             let deadline = Date().addingTimeInterval(timeout)
             repeat {
-                if let string = copiedSelectionTextSnapshot(in: element, timeout: 0.25) {
+                if let string = copiedSelectionTextSnapshot(in: element, timeout: 0.25), !string.isEmpty {
                     return string
                 }
                 RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))

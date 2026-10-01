@@ -16,7 +16,7 @@ jobs:
   ios-simulator:
     name: ${{ matrix.label }} Simulator UI Tests
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -60,21 +60,46 @@ jobs:
           xcrun simctl shutdown all >/dev/null 2>&1 || true
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b
-          xcodebuild test \
-            -project Example/MobileGhosttyApp.xcodeproj \
-            -scheme MobileGhosttyApp \
-            -destination "id=$UDID" \
-            -resultBundlePath "$RESULT_BUNDLE" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+          status=0
+          for inline in 0 1; do
+            TEST_RUNNER_LIBGHOSTTY_INLINE_SELECTION="$inline" xcodebuild test \
+              -project Example/MobileGhosttyApp.xcodeproj \
+              -scheme MobileGhosttyApp \
+              -destination "id=$UDID" \
+              -resultBundlePath "${RESULT_BUNDLE%.xcresult}-$inline.xcresult" \
+              -skip-testing:MobileGhosttyAppUITests/MobileGhosttyAppUITests/testInlineLongPressSelectionCopiesWithKeyboard \
+              -skip-testing:MobileGhosttyAppUITests/MobileGhosttyAppUITests/testInlineSelectionSwitchesBetweenTouchPointerAndKeyboard \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" || status=1
+          done
+          # XCTest's simulated keyboard can stop delivering Command shortcuts
+          # across app launches. Give each hardware-input test a fresh boot.
+          for test in testInlineLongPressSelectionCopiesWithKeyboard testInlineSelectionSwitchesBetweenTouchPointerAndKeyboard; do
+            if [ "$DEVICE_LABEL" = iPhone ] && [ "$test" = testInlineSelectionSwitchesBetweenTouchPointerAndKeyboard ]; then
+              continue
+            fi
+            xcrun simctl shutdown "$UDID"
+            xcrun simctl boot "$UDID"
+            xcrun simctl bootstatus "$UDID" -b
+            TEST_RUNNER_LIBGHOSTTY_INLINE_SELECTION=1 xcodebuild test \
+              -project Example/MobileGhosttyApp.xcodeproj \
+              -scheme MobileGhosttyApp \
+              -destination "id=$UDID" \
+              -resultBundlePath "${RESULT_BUNDLE%.xcresult}-$test.xcresult" \
+              -only-testing:"MobileGhosttyAppUITests/MobileGhosttyAppUITests/$test" \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" || status=1
+          done
+          exit "$status"
 
       - name: Upload ${{ matrix.label }} Result Bundle
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: libghostty-ui-${{ matrix.slug }}-xcresult
-          path: ${{ runner.temp }}/libghostty-ui-${{ matrix.slug }}.xcresult
+          path: ${{ runner.temp }}/libghostty-ui-${{ matrix.slug }}-*.xcresult
           retention-days: 7
 
   mac-catalyst:

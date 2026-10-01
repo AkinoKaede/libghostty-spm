@@ -27,6 +27,7 @@
         var momentumScroll: MomentumScrollState = .init()
         var focusBridge: FocusBridgeState = .init()
         var textInputBridge: TextInputBridgeState = .init()
+        var touchSelection: TouchSelectionState = .init()
         #if !targetEnvironment(macCatalyst)
             var softwareKeyboard: SoftwareKeyboardState = .init()
             var fontZoom: FontZoomState = .init()
@@ -43,7 +44,7 @@
             if let interaction = _selectionEditMenuInteraction as? UIEditMenuInteraction {
                 return interaction
             }
-            let interaction = UIEditMenuInteraction(delegate: nil)
+            let interaction = UIEditMenuInteraction(delegate: self)
             addInteraction(interaction)
             _selectionEditMenuInteraction = interaction
             return interaction
@@ -81,6 +82,43 @@
             }
         #endif
 
+        /// Opt in to terminal-local touch selection and the native edit menu on iOS.
+        /// Single tap clears selection or a menu, otherwise clicks and toggles the keyboard.
+        /// Double tap selects a word, triple tap selects a row.
+        /// Selection gestures and menus leave keyboard visibility unchanged.
+        /// Long press opens the menu; one finger extends a selection and two fingers scroll locally.
+        /// The existing selection-page delegate remains available when this is false.
+        /// Mac Catalyst always uses the existing pointer selection path.
+        open var usesInlineTextSelection: Bool {
+            get { touchSelection.enabled }
+            set {
+                #if !targetEnvironment(macCatalyst)
+                    if !newValue {
+                        dismissTouchSelection()
+                    }
+                    touchSelection.enabled = newValue
+                    updateTouchSelectionGestures()
+                #endif
+            }
+        }
+
+        /// Builds the menu when no text is selected, on iOS 16 and later.
+        /// Override to localize, group or reorder the default actions and system menus.
+        /// Action identifiers are terminal.paste, terminal.select and terminal.selectAll.
+        /// The returned elements include UIKit's AutoFill menu when available.
+        /// The host owns the complete menu, including grouping and separators.
+        open func touchMenuItems(for context: TerminalTouchMenuContext) -> [UIMenuElement] {
+            defaultTouchMenuItems(at: context.sourcePoint, selecting: false) + context.systemMenuItems
+        }
+
+        /// Builds the menu while text is selected, independently of touchMenuItems(for:).
+        /// Action identifiers are terminal.copy, terminal.paste and terminal.selectAll.
+        /// The returned elements include UIKit's AutoFill menu when available.
+        /// Use the context's text snapshot in host handlers and capture owners weakly.
+        open func touchSelectionMenuItems(for context: TerminalTouchSelectionMenuContext) -> [UIMenuElement] {
+            defaultTouchMenuItems(at: context.sourcePoint, selecting: true) + context.systemMenuItems
+        }
+
         open weak var delegate: (any TerminalSurfaceViewDelegate)? {
             get { core.delegate }
             set { core.delegate = newValue }
@@ -105,6 +143,7 @@
         open func setSurfaceVisible(_ visible: Bool) {
             if !visible {
                 stopMomentumScrolling(sendTerminalEndEvent: false)
+                dismissTouchSelection()
             }
             core.setDisplayVisible(visible)
         }
@@ -166,6 +205,7 @@
             }
             core.onPostRender = { [weak self] in
                 self?.enforceSublayerScale()
+                self?.refreshTouchSelection()
             }
             #if !targetEnvironment(macCatalyst)
                 // Every rebuild — a fontSize change, a controller swap, any
@@ -260,6 +300,9 @@
 
         @discardableResult
         open func copySelectedTextToPasteboard() -> Bool {
+            if touchSelection.range != nil {
+                return copyTouchSelection()
+            }
             #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
                     accessibilityValue = nil
