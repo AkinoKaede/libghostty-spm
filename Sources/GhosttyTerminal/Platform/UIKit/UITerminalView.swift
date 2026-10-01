@@ -27,6 +27,7 @@
         var momentumScroll: MomentumScrollState = .init()
         var focusBridge: FocusBridgeState = .init()
         var textInputBridge: TextInputBridgeState = .init()
+        var touchSelection: TouchSelectionState = .init()
         #if !targetEnvironment(macCatalyst)
             var softwareKeyboard: SoftwareKeyboardState = .init()
             var fontZoom: FontZoomState = .init()
@@ -43,7 +44,7 @@
             if let interaction = _selectionEditMenuInteraction as? UIEditMenuInteraction {
                 return interaction
             }
-            let interaction = UIEditMenuInteraction(delegate: nil)
+            let interaction = UIEditMenuInteraction(delegate: self)
             addInteraction(interaction)
             _selectionEditMenuInteraction = interaction
             return interaction
@@ -81,6 +82,39 @@
             }
         #endif
 
+        /// Opt in to terminal-local touch selection and the native edit menu on iOS.
+        /// Single tap focuses or clears selection, double tap selects a word, triple tap selects a row.
+        /// Long press opens the menu; one finger extends a selection and two fingers scroll locally.
+        /// The existing selection-page delegate remains available when this is false.
+        open var usesInlineTextSelection: Bool {
+            get { touchSelection.enabled }
+            set {
+                if !newValue { dismissTouchSelection() }
+                touchSelection.enabled = newValue
+                #if !targetEnvironment(macCatalyst)
+                    updateTouchSelectionGestures()
+                #endif
+            }
+        }
+
+        open var touchSelectionTitles: TerminalTouchSelectionTitles {
+            get { touchSelection.titles }
+            set { touchSelection.titles = newValue }
+        }
+
+        /// Supplies app actions or submenus when no text is selected, on iOS 16 and later.
+        /// Elements are appended as supplied; the host owns grouping and separators.
+        open func touchMenuItems(for context: TerminalTouchMenuContext) -> [UIMenuElement] {
+            []
+        }
+
+        /// Supplies app actions or submenus while text is selected, on iOS 16 and later.
+        /// Elements are appended unchanged. Use the context's text snapshot in handlers
+        /// and capture owners weakly. This does not call the unselected menu hook.
+        open func touchSelectionMenuItems(for context: TerminalTouchSelectionMenuContext) -> [UIMenuElement] {
+            []
+        }
+
         open weak var delegate: (any TerminalSurfaceViewDelegate)? {
             get { core.delegate }
             set { core.delegate = newValue }
@@ -113,6 +147,7 @@
         /// and session — only rendering stops and the display link is
         /// released.
         open func setSurfaceVisible(_ visible: Bool) {
+            if !visible { dismissTouchSelection() }
             core.setDisplayVisible(visible)
         }
 
@@ -173,6 +208,7 @@
             }
             core.onPostRender = { [weak self] in
                 self?.enforceSublayerScale()
+                self?.refreshTouchSelection()
             }
 
             setupApplicationLifecycleObservers()
@@ -258,6 +294,7 @@
 
         @discardableResult
         open func copySelectedTextToPasteboard() -> Bool {
+            if touchSelection.range != nil { return copyTouchSelection() }
             #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
                     accessibilityValue = nil

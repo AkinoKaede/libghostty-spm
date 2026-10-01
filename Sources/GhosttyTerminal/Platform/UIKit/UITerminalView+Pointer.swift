@@ -81,6 +81,8 @@
                 return false
             }
 
+            touchSelection.lastInputWasDirect = false
+            if phase == .began { dismissTouchSelection() }
             core.setFocus(true)
             // A pointer click claims keyboard focus the way a finger tap
             // does — without this, clicking a terminal with a mouse or

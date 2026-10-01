@@ -53,6 +53,7 @@
         @objc func applicationDidEnterBackground(_: Notification) {
             TerminalDebugLog.log(.lifecycle, "application did enter background")
             stopMomentumScrolling(sendTerminalEndEvent: false)
+            dismissTouchSelection()
             #if !targetEnvironment(macCatalyst)
                 stopKeyRepeat()
             #endif
@@ -114,6 +115,7 @@
                 // The surface survives on purpose: this detach may be a
                 // cover's temporary one, and the view's own teardown frees
                 // the surface when the terminal really goes away.
+                dismissTouchSelection()
                 cancelReportedPointerButton()
                 core.stopDisplayLink()
             }
@@ -127,6 +129,7 @@
             )
             updateSublayerFrames()
             core.fitToSize()
+            refreshTouchSelection()
         }
 
         /// The scale used when neither the window nor the trait collection can

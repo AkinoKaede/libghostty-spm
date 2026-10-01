@@ -18,6 +18,7 @@ final class TerminalCallbackBridge {
     weak var delegate: (any TerminalSurfaceViewDelegate)?
     /// Raw surface pointer for use in C callbacks (e.g. clipboard).
     nonisolated(unsafe) var rawSurface: ghostty_surface_t?
+    var scrollbar: TerminalScrollbar?
     var onCellSizeChange: ((UInt32, UInt32) -> Void)?
     var onRenderRequest: (() -> Void)?
     var onMouseShape: ((ghostty_action_mouse_shape_e) -> Void)?
@@ -168,6 +169,7 @@ final class TerminalCallbackBridge {
 
         case GHOSTTY_ACTION_SCROLLBAR:
             let payload = action.action.scrollbar
+            scrollbar = TerminalScrollbar(total: payload.total, offset: payload.offset, len: payload.len)
             TerminalDebugLog.log(
                 .actions,
                 "callback action=scrollbar total=\(payload.total) offset=\(payload.offset) len=\(payload.len)"

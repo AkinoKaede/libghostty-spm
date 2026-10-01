@@ -63,6 +63,7 @@
         // MARK: - UIKeyInput
 
         open func insertText(_ text: String) {
+            dismissTouchSelection()
             #if !targetEnvironment(macCatalyst)
                 claimPendingInputMethodKeys()
             #endif
@@ -147,6 +148,7 @@
         #endif
 
         open func deleteBackward() {
+            dismissTouchSelection()
             #if !targetEnvironment(macCatalyst)
                 claimPendingInputMethodKeys()
             #endif
@@ -196,6 +198,7 @@
             _ markedText: String?,
             selectedRange: NSRange
         ) {
+            dismissTouchSelection()
             #if !targetEnvironment(macCatalyst)
                 claimPendingInputMethodKeys()
             #endif

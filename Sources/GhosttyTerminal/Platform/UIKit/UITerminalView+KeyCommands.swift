@@ -14,8 +14,7 @@
         /// hardware keys to UIKit's text machinery, which consumes most
         /// Ctrl+letter chords (its emacs-style bindings) before
         /// `pressesBegan` ever fires. Registering them as key commands with
-        /// priority over system behavior is the only reliable claim — the
-        /// same route Blink and SwiftTerm take.
+        /// priority over system behavior lets the terminal receive those chords.
         private static let controlKeyCommandInputs: [String] = {
             var inputs = (UInt8(ascii: "a") ... UInt8(ascii: "z")).map {
                 String(UnicodeScalar($0))

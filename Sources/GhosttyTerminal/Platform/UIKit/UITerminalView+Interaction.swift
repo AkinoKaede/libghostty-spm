@@ -25,7 +25,11 @@
             if handleIndirectPointerTouches(touches, phase: .began, event: event) {
                 return
             }
+            touchSelection.lastInputWasDirect = true
+            if let overlay = touchSelection.overlay,
+               touches.contains(where: { $0.view?.isDescendant(of: overlay) == true }) { return }
             super.touchesBegan(touches, with: event)
+            if usesInlineTextSelection { return }
             #if targetEnvironment(macCatalyst)
                 becomeFirstResponder()
             #else
@@ -77,6 +81,10 @@
             if handleIndirectPointerTouches(touches, phase: .ended, event: event) {
                 return
             }
+            if usesInlineTextSelection {
+                super.touchesEnded(touches, with: event)
+                return
+            }
             #if !targetEnvironment(macCatalyst)
                 if softwareKeyboard.tapCandidateArmed, let touch = touches.first {
                     softwareKeyboard.tapCandidateArmed = false
@@ -91,6 +99,10 @@
                         // mouse gets its press before the resize the
                         // keyboard causes, and the shell sees the
                         // click-to-move at its prompt either way.
+                        if touchSelection.range != nil {
+                            dismissTouchSelection()
+                            return
+                        }
                         sendTapClick(at: touch.location(in: self))
                         // Overridable: a host keyboard lock overrides
                         // `toggleSoftwareKeyboard()` to swallow the toggle;
@@ -146,7 +158,9 @@
                 )
                 gesture.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
                 gesture.maximumNumberOfTouches = 1
+                gesture.delegate = self
                 addGestureRecognizer(gesture)
+                touchSelection.scrollGesture = gesture
 
                 let longPress = UILongPressGestureRecognizer(
                     target: self,
@@ -160,9 +174,11 @@
                 longPress.cancelsTouchesInView = false
                 longPress.delegate = self
                 addGestureRecognizer(longPress)
+                touchSelection.longPress = longPress
 
                 setupIndirectPointerSelectionGesture()
                 setupPinchZoomGesture()
+                setupTouchSelectionGestures()
             }
 
             /// One left click at `point`, the way a finger tap reaches the
@@ -206,6 +222,10 @@
             ) {
                 guard gesture.state == .began else { return }
                 softwareKeyboard.tapCandidateArmed = false
+                if usesInlineTextSelection {
+                    presentTouchMenu(at: gesture.location(in: self))
+                    return
+                }
                 guard let delegate = activeTextSelectionDelegate else { return }
                 guard let surface else { return }
                 guard case let .inMemory(session) = configuration.backend else {
@@ -259,6 +279,11 @@
         /// has opted into selection delegate. Without this, the recognizer
         /// still enters the touch arena for 0.5s and can subtly delay pan
         /// recognition for hosts that don't want the feature at all.
+        public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            if let overlay = touchSelection.overlay, touch.view?.isDescendant(of: overlay) == true { return false }
+            return true
+        }
+
         override open func gestureRecognizerShouldBegin(
             _ gestureRecognizer: UIGestureRecognizer
         ) -> Bool {
@@ -266,7 +291,7 @@
                 #if targetEnvironment(macCatalyst)
                     return (delegate as? any TerminalSurfaceTextSelectionRequestDelegate) != nil
                 #else
-                    return activeTextSelectionDelegate != nil
+                    return usesInlineTextSelection || activeTextSelectionDelegate != nil
                 #endif
             }
             return true
