@@ -7,6 +7,7 @@
 
 #if !canImport(UIKit) && canImport(AppKit)
     import AppKit
+    import DisplayLink
     import GhosttyKit
 
     @MainActor
@@ -82,6 +83,7 @@
             setupTrackingArea()
 
             core.isAttached = { [weak self] in self?.window != nil }
+            core.displayLinkContext = .view(self)
             core.scaleFactor = { [weak self] in
                 Double(
                     self?.window?.backingScaleFactor

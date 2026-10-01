@@ -5,9 +5,9 @@
 //  Created by Lakr233 on 2026/3/16.
 //
 
+import DisplayLink
 import Foundation
 import GhosttyKit
-import MSDisplayLink
 
 /// Shared terminal state and logic used by both UIKit and AppKit views.
 ///
@@ -46,6 +46,12 @@ final class TerminalSurfaceCoordinator {
     // MARK: - Platform Hooks
 
     var isAttached: () -> Bool = { false }
+    /// Where frames come from. Platform views bind it to themselves, so the
+    /// link follows the display their window is on; `.main` serves a
+    /// coordinator with no view, as in tests.
+    var displayLinkContext: DisplayLinkContext = .main {
+        didSet { displayLink?.context = displayLinkContext }
+    }
     var scaleFactor: () -> Double = { 2.0 }
     var viewSize: () -> (width: Double, height: Double) = { (0, 0) }
     var platformSetup: ((inout ghostty_surface_config_s) -> Void)?
@@ -92,12 +98,14 @@ final class TerminalSurfaceCoordinator {
     private var isApplicationActive = true
     private var pendingImmediateTick = true
 
-    /// Held only while frames are owed. The engine's wakeups arrive at PTY
-    /// speed, not display speed; rendering straight from them draws far more
-    /// often than the screen can show and starves input handling under heavy
-    /// output. The link paces draws to vsync instead, and is released after
-    /// a stretch of idle frames so a quiet terminal costs no per-frame
-    /// wakeups at all. All instances share one platform link.
+    /// Running only while frames are owed. The engine's wakeups arrive at
+    /// PTY speed, not display speed; rendering straight from them draws far
+    /// more often than the screen can show and starves input handling under
+    /// heavy output. The link paces draws to vsync instead, and is paused
+    /// after a stretch of idle frames so a quiet terminal costs no per-frame
+    /// wakeups at all. Created once and paused rather than dropped, because
+    /// a link bound to a view adds a hidden subview to it. Links on one
+    /// display share one platform link.
     ///
     /// The range floors at 60: letting the system drop to 30 while output
     /// streams read as flicker on a scrolling screen. ProMotion displays may
@@ -581,16 +589,23 @@ final class TerminalSurfaceCoordinator {
             return
         }
         idleFrameCount = 0
-        guard displayLink == nil else { return }
-        let link = DisplayLink(preferredFrameRateRange: Self.displayLinkFrameRateRange)
-        link.delegatingObject(self)
-        displayLink = link
+        if let displayLink {
+            guard displayLink.isPaused else { return }
+            displayLink.isPaused = false
+        } else {
+            let link = DisplayLink(
+                context: displayLinkContext,
+                preferredFrameRateRange: Self.displayLinkFrameRateRange
+            )
+            link.delegate = self
+            displayLink = link
+        }
         TerminalDebugLog.log(.lifecycle, "display link acquired")
     }
 
     private func releaseDisplayLink() {
-        guard displayLink != nil else { return }
-        displayLink = nil
+        guard let displayLink, !displayLink.isPaused else { return }
+        displayLink.isPaused = true
         idleFrameCount = 0
         TerminalDebugLog.log(.lifecycle, "display link released")
     }
@@ -621,11 +636,7 @@ final class TerminalSurfaceCoordinator {
 }
 
 extension TerminalSurfaceCoordinator: DisplayLinkDelegate {
-    // The shared CADisplayLink dispatches synchronously on the main run
-    // loop; the protocol just cannot say so.
-    nonisolated func synchronization(context _: DisplayLinkCallbackContext) {
-        MainActor.assumeIsolated {
-            tick()
-        }
+    func displayLink(_: DisplayLink, didUpdate _: DisplayLinkFrame) {
+        tick()
     }
 }
