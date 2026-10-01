@@ -20,7 +20,7 @@ struct TerminalBackgroundColorTests {
 
     @Test
     func `an OSC 11 background reaches the delegate`() async {
-        let harness = GhosttySurfaceHarness()
+        let harness = await GhosttySurfaceHarness.make()
         defer { harness.tearDown() }
         guard harness.surface != nil else { return }
         let recorder = ColorChangeRecorder()
@@ -42,7 +42,7 @@ struct TerminalBackgroundColorTests {
 
     @Test
     func `a reset hands the background back to the config`() async {
-        let harness = GhosttySurfaceHarness()
+        let harness = await GhosttySurfaceHarness.make()
         defer { harness.tearDown() }
         guard let controller = harness.coordinator.controller else { return }
         let state = TerminalViewState(controller: controller)

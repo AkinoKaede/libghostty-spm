@@ -5,19 +5,40 @@ import GhosttyKit
 import Testing
 
 /// One Ghostty app/surface at a time. Parallel `ghostty_app_new` aborts.
+///
+/// Tests wait for their turn by suspending, not by blocking: every test runs
+/// on the main actor, so a blocking lock taken while the holder is suspended
+/// in an `await` stalls the main thread the holder needs to finish.
 @MainActor
 final class GhosttySurfaceHarness {
-    private static let createLock = NSLock()
+    private static var isOccupied = false
+    private static var waiters: [CheckedContinuation<Void, Never>] = []
+
+    static func make() async -> GhosttySurfaceHarness {
+        if isOccupied {
+            await withCheckedContinuation { waiters.append($0) }
+        } else {
+            isOccupied = true
+        }
+        return GhosttySurfaceHarness()
+    }
+
+    /// Hands the turn straight to the next waiter, so it stays occupied.
+    private static func leave() {
+        if waiters.isEmpty {
+            isOccupied = false
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
 
     let session: InMemoryTerminalSession
     let coordinator = TerminalSurfaceCoordinator()
     private let platformView = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 500))
     private let outbound = LockedBytes()
-    private var holdsCreateLock = false
+    private var holdsTurn = true
 
-    init() {
-        Self.createLock.lock()
-        holdsCreateLock = true
+    private init() {
         let outbound = outbound
         session = InMemoryTerminalSession(
             write: { outbound.append($0) },
@@ -48,9 +69,9 @@ final class GhosttySurfaceHarness {
 
     func tearDown() {
         coordinator.freeSurface()
-        if holdsCreateLock {
-            holdsCreateLock = false
-            Self.createLock.unlock()
+        if holdsTurn {
+            holdsTurn = false
+            Self.leave()
         }
     }
 

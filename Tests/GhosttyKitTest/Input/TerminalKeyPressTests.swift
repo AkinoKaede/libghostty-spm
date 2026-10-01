@@ -119,7 +119,7 @@ struct TerminalKeyPressTests {
 struct TerminalKeyPressIntegrationTests {
     @Test
     func `enter takes the key path under bracketed paste`() async {
-        let harness = GhosttySurfaceHarness()
+        let harness = await GhosttySurfaceHarness.make()
         defer { harness.tearDown() }
         guard let surface = harness.surface else { return }
         // Kitty keeps Enter in legacy form unless report-all (bit 8) is
@@ -137,7 +137,7 @@ struct TerminalKeyPressIntegrationTests {
 
     @Test
     func `a release is reported when the program asks for key events`() async {
-        let harness = GhosttySurfaceHarness()
+        let harness = await GhosttySurfaceHarness.make()
         defer { harness.tearDown() }
         guard let surface = harness.surface else { return }
         // disambiguate (1) + report event types (2) + report all keys (8).
@@ -152,7 +152,7 @@ struct TerminalKeyPressIntegrationTests {
 
     @Test
     func `control c encodes the control byte`() async {
-        let harness = GhosttySurfaceHarness()
+        let harness = await GhosttySurfaceHarness.make()
         defer { harness.tearDown() }
         guard let surface = harness.surface else { return }
 
@@ -166,7 +166,7 @@ struct TerminalKeyPressIntegrationTests {
     /// writes the ESC prefix a program reads as Meta.
     @Test
     func `control alt c keeps the alt escape prefix`() async {
-        let harness = GhosttySurfaceHarness()
+        let harness = await GhosttySurfaceHarness.make()
         defer { harness.tearDown() }
         guard let surface = harness.surface else { return }
 
@@ -178,7 +178,7 @@ struct TerminalKeyPressIntegrationTests {
 
     @Test
     func `a typed character sends its text`() async {
-        let harness = GhosttySurfaceHarness()
+        let harness = await GhosttySurfaceHarness.make()
         defer { harness.tearDown() }
         guard let surface = harness.surface else { return }
 
@@ -191,7 +191,7 @@ struct TerminalKeyPressIntegrationTests {
 
     @Test
     func `shift tab encodes back tab`() async {
-        let harness = GhosttySurfaceHarness()
+        let harness = await GhosttySurfaceHarness.make()
         defer { harness.tearDown() }
         guard let surface = harness.surface else { return }
 
@@ -203,7 +203,7 @@ struct TerminalKeyPressIntegrationTests {
 
     @Test
     func `a key without a mac keycode is refused`() async {
-        let harness = GhosttySurfaceHarness()
+        let harness = await GhosttySurfaceHarness.make()
         defer { harness.tearDown() }
         guard let surface = harness.surface else { return }
 

@@ -8,7 +8,7 @@ import Testing
 struct TerminalPointerReportingTests {
     @Test
     func `SGR click is encoded when mouse tracking is on`() async {
-        let harness = GhosttySurfaceHarness()
+        let harness = await GhosttySurfaceHarness.make()
         defer { harness.tearDown() }
         guard let surface = harness.surface else { return }
         harness.receive("\u{1B}[?1000h\u{1B}[?1006h")
@@ -29,7 +29,7 @@ struct TerminalPointerReportingTests {
 
     @Test
     func `a click is not a mouse report when tracking is off`() async {
-        let harness = GhosttySurfaceHarness()
+        let harness = await GhosttySurfaceHarness.make()
         defer { harness.tearDown() }
         guard let surface = harness.surface else { return }
 

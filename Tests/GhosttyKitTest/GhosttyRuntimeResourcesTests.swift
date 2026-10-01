@@ -57,7 +57,9 @@ struct GhosttyRuntimeResourcesTests {
         ])
     }
 
-    @Test
+    /// Main actor: `setenv`/`unsetenv` must not run while `ghostty_init` on
+    /// the main thread is reading the environment.
+    @Test @MainActor
     func `configuration exports Ghostty resource root`() throws {
         let previous = getenv("GHOSTTY_RESOURCES_DIR").map { String(cString: $0) }
         defer {

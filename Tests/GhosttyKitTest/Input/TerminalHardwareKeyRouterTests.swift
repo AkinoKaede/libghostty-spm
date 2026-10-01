@@ -252,7 +252,7 @@ struct TerminalHardwareKeyRouterTests {
 struct TerminalSemanticReturnIntegrationTests {
     @Test
     func `semantic return uses kitty key encoding while bracketed paste is active`() async {
-        let harness = GhosttySurfaceHarness()
+        let harness = await GhosttySurfaceHarness.make()
         defer { harness.tearDown() }
         guard let surface = harness.surface else { return }
 
