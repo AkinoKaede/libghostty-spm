@@ -61,4 +61,24 @@ struct TerminalTouchSelectionTests {
         harness.receive("\u{1B}[2J\u{1B}[H" + text)
         #expect(surface.readCells(0...(columns + 5), columns: columns)?.text == text)
     }
+
+    @Test func readsAbsoluteHistoryRowsBeforeAndAfterScrolling() async throws {
+        let harness = await GhosttySurfaceHarness.make()
+        defer { harness.tearDown() }
+        let surface = try #require(harness.surface)
+        let metrics = try #require(surface.size())
+        let columns = Int(metrics.columns)
+        let lines = (0..<(Int(metrics.rows) * 3)).map { String(format: "history-%03d", $0) }
+        harness.receive("\u{1B}[2J\u{1B}[H" + lines.joined(separator: "\r\n"))
+        for row in [0, Int(metrics.rows), lines.count - 1] {
+            let start = row * columns
+            #expect(surface.readCells(start...(start + 10), columns: columns)?.text == lines[row])
+        }
+        #expect(surface.scrollToRow(10))
+        for row in [0, Int(metrics.rows), lines.count - 1] {
+            let start = row * columns
+            #expect(surface.readCells(start...(start + 10), columns: columns)?.text == lines[row])
+        }
+        #expect(surface.readCells(0...10, columns: columns, viewport: true)?.text == lines[10])
+    }
 }

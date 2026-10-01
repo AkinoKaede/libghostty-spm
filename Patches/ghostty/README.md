@@ -78,6 +78,8 @@ to move back.
 
 ## Patches
 
+- `0018-screen-text-history.sh` — preserve the full scrollback row range for
+  screen-relative text reads; viewport-relative reads retain grid bounds.
 - `0001-darwin-libghostty-install.sh` — `build.zig`: install the header and
   static `libghostty.a` on Darwin, which upstream only wires for other OSes;
   handles both the `libghostty_*` and the renamed `lib_*` /
