@@ -1,0 +1,18 @@
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index b90366a..969c644 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -1604,7 +1604,12 @@ pub const CAPI = struct {
+ 
+             // Clamp our point to the screen bounds.
+             const clamped_x = @min(self.x, screen.pages.cols -| 1);
+-            const clamped_y = @min(self.y, screen.pages.rows -| 1);
++            // Screen-relative text reads must reach every scrollback row.
++            const coordinate_rows: usize = switch (tag) {
++                .screen => screen.pages.total_rows,
++                else => screen.pages.rows,
++            };
++            const clamped_y: u32 = @intCast(@min(self.y, coordinate_rows -| 1));
+ 
+             return switch (self.coord_tag) {
+                 // Exact coordinates require a specific pin.

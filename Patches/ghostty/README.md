@@ -78,8 +78,6 @@ to move back.
 
 ## Patches
 
-- `0018-screen-text-history.sh` — preserve the full scrollback row range for
-  screen-relative text reads; viewport-relative reads retain grid bounds.
 - `0001-darwin-libghostty-install.sh` — `build.zig`: install the header and
   static `libghostty.a` on Darwin, which upstream only wires for other OSes;
   handles both the `libghostty_*` and the renamed `lib_*` /
@@ -233,6 +231,9 @@ to move back.
   "unsupported" for ios, the simulator, maccatalyst and visionos, and every
   one of those slices died translating CoreGraphics (`CGPath.h:392: error:
   blocks are not enabled`) — the 2026-09-14 and 09-21 build failures.
+
+- `0018-screen-text-history.patch` — preserve the full scrollback row range for
+  screen-relative text reads; viewport-relative reads retain grid bounds.
 
 Dropped once upstream carried them: `0014-free-text-signature.patch`
 (`ghostty_surface_free_text` taking the surface, upstream `4803d58b`). A
