@@ -73,6 +73,12 @@
                 case .command: commandActivation
                 }
                 button.applyModifierStyle(activation, isDisabled: hasMarkedText, style: style)
+                let publicActivation: TerminalPublicStickyActivation = switch activation {
+                case .inactive: .inactive
+                case .armed: .armed
+                case .locked: .locked
+                }
+                button.accessibilityValue = terminalView?.inputAccessoryAccessibilityValue(for: publicActivation)
             }
         }
 
@@ -156,6 +162,7 @@
             view.translatesAutoresizingMaskIntoConstraints = false
             view.backgroundColor = .secondaryLabel.withAlphaComponent(0.28)
             view.layer.cornerRadius = 3
+            view.isAccessibilityElement = false
             NSLayoutConstraint.activate([
                 view.widthAnchor.constraint(equalToConstant: 6),
                 view.heightAnchor.constraint(equalToConstant: 6),
@@ -167,7 +174,7 @@
             // Titles and glyphs come from the item itself
             // (`TerminalInputAccessoryItem.title` / `.systemImage`) so hosts
             // that render their own picker UI stay in sync with the bar.
-            let title = item.title ?? ""
+            let title = terminalView?.inputAccessoryAccessibilityLabel(for: item) ?? item.title ?? ""
             switch item {
             case .ctrl:
                 return makeTrackedModifierButton(title: title, systemImage: item.systemImage ?? "", modifier: .ctrl)
@@ -401,6 +408,11 @@
             alpha = isDisabled && activation == .inactive ? 0.45 : 1
 
             let isActive = activation != .inactive
+            if isActive {
+                accessibilityTraits.insert(.selected)
+            } else {
+                accessibilityTraits.remove(.selected)
+            }
             tintColor = isActive ? style.activeForeground : style.regularForeground
             backgroundColor = isActive ? style.activeBackground : style.regularBackground
             lockIndicator.isHidden = activation != .locked

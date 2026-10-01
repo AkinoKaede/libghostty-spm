@@ -27,7 +27,8 @@
         /// through ``sendKey(_:)``. False with no surface yet.
         @discardableResult
         public func paste(text: String) -> Bool {
-            surface?.paste(text: text) ?? false
+            dismissTouchSelection()
+            return surface?.paste(text: text) ?? false
         }
 
         /// Presses and releases a key, as if typed on a hardware keyboard —
@@ -37,6 +38,7 @@
         /// accessory bar. False with no surface yet.
         @discardableResult
         public func sendKey(_ press: TerminalKeyPress) -> Bool {
+            dismissTouchSelection()
             guard let surface else { return false }
             if inputHandler.hasMarkedText {
                 inputHandler.unmarkText()

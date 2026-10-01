@@ -27,6 +27,7 @@
         var momentumScroll: MomentumScrollState = .init()
         var focusBridge: FocusBridgeState = .init()
         var textInputBridge: TextInputBridgeState = .init()
+        var touchSelection: TouchSelectionState = .init()
         #if !targetEnvironment(macCatalyst)
             var softwareKeyboard: SoftwareKeyboardState = .init()
             var fontZoom: FontZoomState = .init()
@@ -43,7 +44,7 @@
             if let interaction = _selectionEditMenuInteraction as? UIEditMenuInteraction {
                 return interaction
             }
-            let interaction = UIEditMenuInteraction(delegate: nil)
+            let interaction = UIEditMenuInteraction(delegate: self)
             addInteraction(interaction)
             _selectionEditMenuInteraction = interaction
             return interaction
@@ -67,6 +68,20 @@
                 }
             }
 
+            /// Hosts may localize labels without replacing the native accessory.
+            open func inputAccessoryAccessibilityLabel(for item: TerminalInputAccessoryItem) -> String? {
+                item.title
+            }
+
+            /// Spoken state of a sticky modifier on the native accessory.
+            open func inputAccessoryAccessibilityValue(for activation: TerminalPublicStickyActivation) -> String {
+                switch activation {
+                case .inactive: "Inactive"
+                case .armed: "Armed"
+                case .locked: "Locked"
+                }
+            }
+
             /// Toggles the software keyboard the way a clean tap does: the
             /// touch path calls this after the tap's click has been sent.
             /// Declared in the class body so a host's `makePlatformView`
@@ -80,6 +95,39 @@
                 }
             }
         #endif
+
+        /// Opt in to terminal-local touch selection and the native edit menu on iOS.
+        /// Single tap clears selection or a menu, otherwise clicks and toggles the keyboard.
+        /// Double tap selects a word, triple tap selects a row.
+        /// Long press opens the menu; one finger extends a selection and two fingers scroll locally.
+        /// The existing selection-page delegate remains available when this is false.
+        open var usesInlineTextSelection: Bool {
+            get { touchSelection.enabled }
+            set {
+                if !newValue {
+                    dismissTouchSelection()
+                }
+                touchSelection.enabled = newValue
+                #if !targetEnvironment(macCatalyst)
+                    updateTouchSelectionGestures()
+                #endif
+            }
+        }
+
+        /// Builds the menu when no text is selected, on iOS 16 and later.
+        /// Override to localize the default actions or append host elements.
+        /// Action identifiers are terminal.paste, terminal.select and terminal.selectAll.
+        /// The host owns grouping and separators; UIKit supplies AutoFill separately.
+        open func touchMenuItems(for context: TerminalTouchMenuContext) -> [UIMenuElement] {
+            defaultTouchMenuItems(at: context.sourcePoint, selecting: false)
+        }
+
+        /// Builds the menu while text is selected, independently of touchMenuItems(for:).
+        /// Action identifiers are terminal.copy, terminal.paste and terminal.selectAll.
+        /// Use the context's text snapshot in host handlers and capture owners weakly.
+        open func touchSelectionMenuItems(for context: TerminalTouchSelectionMenuContext) -> [UIMenuElement] {
+            defaultTouchMenuItems(at: context.sourcePoint, selecting: true)
+        }
 
         open weak var delegate: (any TerminalSurfaceViewDelegate)? {
             get { core.delegate }
@@ -113,6 +161,9 @@
         /// and session — only rendering stops and the display link is
         /// released.
         open func setSurfaceVisible(_ visible: Bool) {
+            if !visible {
+                dismissTouchSelection()
+            }
             core.setDisplayVisible(visible)
         }
 
@@ -173,6 +224,7 @@
             }
             core.onPostRender = { [weak self] in
                 self?.enforceSublayerScale()
+                self?.refreshTouchSelection()
             }
 
             setupApplicationLifecycleObservers()
@@ -258,6 +310,9 @@
 
         @discardableResult
         open func copySelectedTextToPasteboard() -> Bool {
+            if touchSelection.range != nil {
+                return copyTouchSelection()
+            }
             #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
                     accessibilityValue = nil

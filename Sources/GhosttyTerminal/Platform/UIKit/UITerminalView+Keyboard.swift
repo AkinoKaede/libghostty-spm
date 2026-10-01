@@ -96,6 +96,12 @@
             _ presses: Set<UIPress>,
             with event: UIPressesEvent?
         ) {
+            if presses.contains(where: {
+                guard let key = $0.key else { return false }
+                return !key.charactersIgnoringModifiers.isEmpty && !key.modifierFlags.contains(.command)
+            }) {
+                dismissTouchSelection()
+            }
             #if targetEnvironment(macCatalyst)
                 for press in presses {
                     guard let key = press.key else { continue }
@@ -219,6 +225,14 @@
             _ key: UIKey,
             action: ghostty_input_action_e
         ) -> Bool {
+            if touchSelection.range != nil, key.modifierFlags.contains(.command),
+               key.charactersIgnoringModifiers.lowercased() == "c"
+            {
+                if action == GHOSTTY_ACTION_PRESS {
+                    _ = copyTouchSelection()
+                }
+                return true
+            }
             notePointerModifierFlags(key.modifierFlags)
             guard let surface else {
                 TerminalDebugLog.log(.input, "uikit key ignored: missing surface")

@@ -232,6 +232,9 @@ to move back.
   one of those slices died translating CoreGraphics (`CGPath.h:392: error:
   blocks are not enabled`) — the 2026-09-14 and 09-21 build failures.
 
+- `0018-screen-text-history.sh` — preserve the full scrollback row range for
+  screen-relative text reads; viewport-relative reads retain grid bounds.
+
 Dropped once upstream carried them: `0014-free-text-signature.patch`
 (`ghostty_surface_free_text` taking the surface, upstream `4803d58b`). A
 patch that only "already applies" is a liability — the day its context

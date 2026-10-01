@@ -7,7 +7,7 @@ final class ViewController: UIViewController {
     private static let lightThemeKey = "SelectedTheme.light"
     private static let darkThemeKey = "SelectedTheme.dark"
 
-    private lazy var terminalView: TerminalView = .init(frame: .zero)
+    private lazy var terminalView = MobileExampleTerminalView(frame: .zero)
     private lazy var shellSession: ShellSession = .init(shell: defaultSandboxShell)
     private lazy var controller: TerminalController = .init(
         theme: Self.savedTerminalTheme()
@@ -45,6 +45,7 @@ final class ViewController: UIViewController {
 
     private func configureTerminalView() {
         terminalView.delegate = self
+        terminalView.usesInlineTextSelection = !ProcessInfo.processInfo.arguments.contains("--legacy-selection")
         terminalView.isAccessibilityElement = true
         terminalView.accessibilityIdentifier = "terminal.surface"
         terminalView.accessibilityLabel = "Terminal"
@@ -65,6 +66,12 @@ final class ViewController: UIViewController {
         ])
 
         #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing-pasteboard") {
+                UIPasteboard.general.string = "paste fixture"
+            }
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing-touch-menu") {
+                UIPasteboard.general.items = []
+            }
             if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
                 let output = TerminalOutputAccessibilityView(
                     session: shellSession.terminalSession
@@ -295,5 +302,39 @@ private extension UIColor {
             blue: CGFloat(b) / 255,
             alpha: 1
         )
+    }
+}
+
+/// Demonstrates the independent subclass hooks without changing the default menu.
+private final class MobileExampleTerminalView: TerminalView {
+    #if DEBUG
+        private var showsTestMenuItems: Bool {
+            ProcessInfo.processInfo.arguments.contains("--ui-testing-touch-menu")
+                || ProcessInfo.processInfo.arguments.contains("--ui-testing-host-menu")
+        }
+    #endif
+
+    override func touchMenuItems(for context: TerminalTouchMenuContext) -> [UIMenuElement] {
+        var items = super.touchMenuItems(for: context)
+        #if DEBUG
+            if showsTestMenuItems {
+                items.append(UIAction(title: "Host Action") { [weak self] _ in
+                    self?.accessibilityValue = "host:none"
+                })
+            }
+        #endif
+        return items
+    }
+
+    override func touchSelectionMenuItems(for context: TerminalTouchSelectionMenuContext) -> [UIMenuElement] {
+        var items = super.touchSelectionMenuItems(for: context)
+        #if DEBUG
+            if showsTestMenuItems {
+                items.append(UIAction(title: "Inspect Selection") { [weak self] _ in
+                    self?.accessibilityValue = "host:" + context.selectedText
+                })
+            }
+        #endif
+        return items
     }
 }
