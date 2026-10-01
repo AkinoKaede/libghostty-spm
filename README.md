@@ -94,68 +94,6 @@ terminalView.configuration = TerminalSurfaceOptions(
 
 `TerminalView` is a type alias that resolves to `UITerminalView` (iOS/Catalyst) or `AppTerminalView` (macOS).
 
-### iOS Touch Selection and Menus
-
-Opt in on `UITerminalView` (or in a SwiftUI host's `makePlatformView` closure):
-
-```swift
-terminalView.usesInlineTextSelection = true
-terminalView.touchSelectionTitles = TerminalTouchSelectionTitles(
-    paste: "Paste", select: "Select", selectAll: "Select All", copy: "Copy"
-)
-```
-
-Subclass the view to add app actions, with independent hooks for each state:
-
-```swift
-final class CustomTerminalView: UITerminalView {
-    override func touchMenuItems(for context: TerminalTouchMenuContext) -> [UIMenuElement] {
-        [UIAction(title: "Upload File", image: UIImage(systemName: "paperclip")) { _ in
-            // Present the app's file picker.
-        }]
-    }
-
-    override func touchSelectionMenuItems(for context: TerminalTouchSelectionMenuContext) -> [UIMenuElement] {
-        let text = context.selectedText
-        return [UIAction(title: "Inspect", image: UIImage(systemName: "info.circle")) { _ in
-            // Present the app's inspector for text.
-        }]
-    }
-}
-```
-
-Supply localized titles from the host. `touchMenuItems(for:)` is called before
-selection; `touchSelectionMenuItems(for:)` is called while text is selected and
-receives a non-optional text snapshot. Both return native `UIAction` or `UIMenu`
-elements and receive the invocation point. The hooks are independent: the
-selected menu never falls back to the unselected hook. macOS also supports
-subclass customization through `selectionContextMenu()` for selected text and
-the system's `menu(for:)` override for other context menus.
-Elements are appended unchanged; the host defines any groups and separators.
-The standard edit actions and UIKit's real AutoFill menu remain available.
-UIKit handles compact layout, the overflow arrow, expansion and dismissal;
-menus that fit the available width need no overflow button. Paste appears only
-when the pasteboard advertises supported content and uses the existing paste
-pipeline. Menu extensions require iOS 16+, and system AutoFill requires iOS 17+.
-iOS 15 uses the responder-chain edit menu.
-
-- Long press for 0.7 seconds opens the edit menu without selecting text.
-- Double tap selects a word; triple tap selects a row.
-- A single tap focuses an unfocused terminal. In a mouse-tracking program it
-  sends a click without forcing the keyboard open; double tap brings focus back.
-  A focused tap clears a selection, otherwise sends a TUI click or shows the
-  menu near the shell cursor. It never toggles the keyboard off.
-- Drag a handle or pan with one finger to extend a selection, including across
-  the fixed endpoint. Dragging at an edge scrolls the selection through history.
-- With no selection, one finger scrolls or reports wheel input to the program.
-  Two fingers always scroll local history. Pinch font zoom is disabled in this
-  touch mode so two fingers remain dedicated to scrolling.
-- Copy clears the selection. Input, surface replacement and geometry changes
-  also clear it; selection never synthesizes mouse input to a running TUI.
-
-This mode is opt-in. The default remains the existing host selection delegate
-and keyboard-toggle touch behavior; Mac Catalyst retains its pointer gestures.
-
 ### Keys and Pasted Text
 
 `TerminalViewState` and `TerminalView` expose the same two input paths, and
