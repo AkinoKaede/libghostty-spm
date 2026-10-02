@@ -172,7 +172,7 @@
             func sendTapClick(at point: CGPoint) {
                 guard let surface else { return }
                 let mods = pointerMods()
-                sendPointerPosition(at: point)
+                sendPointerPosition(at: tapClickPoint(for: point, on: surface))
                 surface.sendMouseButton(
                     state: GHOSTTY_MOUSE_PRESS,
                     button: GHOSTTY_MOUSE_LEFT,
@@ -185,6 +185,24 @@
                 )
                 pointer.lastSelectionRect = nil
                 pointer.selectionStartPoint = nil
+            }
+
+            /// Where a tap's click lands. A program tracking the mouse gets
+            /// the cell under the finger. Otherwise a tap below the cursor's
+            /// row clicks the cursor's own cell: ghostty keeps the clicked
+            /// cell pinned until the next press, and a pinned blank row
+            /// stops the keyboard's resize from trimming the blank rows
+            /// under it, so a tap low on a short screen pushed the lines at
+            /// the top into scrollback when the keyboard came up. On the
+            /// cursor's row the pin costs nothing — the cursor holds that
+            /// row already — and the click still clears a selection.
+            func tapClickPoint(for point: CGPoint, on surface: TerminalSurface) -> CGPoint {
+                guard !surface.isMouseCaptured else { return point }
+                // `imePoint` is the cursor cell's horizontal midpoint and
+                // bottom edge, in view points.
+                let cursor = surface.imePoint()
+                guard cursor.height > 0, point.y > cursor.y else { return point }
+                return CGPoint(x: cursor.x, y: cursor.y - cursor.height / 2)
             }
 
             /// The delegate to hand a long-press selection to, or nil when no

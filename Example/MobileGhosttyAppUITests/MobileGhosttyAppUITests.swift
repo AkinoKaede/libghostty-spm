@@ -182,6 +182,34 @@ import XCTest
                 typeTerminalText("echo after-keyboard-toggle\n", in: terminal)
                 waitForOutputLine("after-keyboard-toggle")
             }
+
+            /// A tap far below the prompt raises the keyboard without
+            /// pushing the screen's few lines into scrollback: the tap's
+            /// click must not pin a blank row the resize would trim.
+            func testLowTapRaisingKeyboardKeepsScreenContent() throws {
+                let terminal = try requireTerminalInteractionTarget()
+                XCTAssertTrue(prepareTerminalForTyping(terminal))
+                let keyboard = app.keyboards.firstMatch
+                guard keyboard.waitForExistence(timeout: 3) else {
+                    throw XCTSkip("No software keyboard: the simulator has a hardware keyboard connected")
+                }
+                typeTerminalText("clear\necho low-tap-anchor\n", in: terminal)
+                waitForOutputLine("low-tap-anchor")
+
+                tapTerminal(in: terminal)
+                XCTAssertTrue(keyboard.waitForNonExistence(timeout: 4))
+                let low = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.92))
+                if isIPad {
+                    low.tap()
+                } else {
+                    low.press(forDuration: 0.01)
+                }
+                XCTAssertTrue(keyboard.waitForExistence(timeout: 4))
+                // Let the keyboard's resize reach the grid before reading it.
+                RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+                waitForOutputLine("low-tap-anchor")
+                capture("low-tap-keyboard-raised")
+            }
         #endif
 
         // MARK: - Lifecycle helpers
