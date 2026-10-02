@@ -34,3 +34,34 @@ struct TerminalPasteboardContentTests {
         #expect(TerminalPasteboardContent.text(string: nil, urls: []) == nil)
     }
 }
+
+#if !canImport(UIKit) && canImport(AppKit)
+    import AppKit
+
+    /// A mode 5522 list request reports presence only; `hasText(in:)`
+    /// answers it without reading the contents and agrees with `text(from:)`.
+    struct TerminalPasteboardPresenceTests {
+        @Test
+        func `presence follows what the text reader would find`() {
+            let pasteboard = NSPasteboard(name: .init("ghostty-test-\(UUID().uuidString)"))
+            defer { pasteboard.releaseGlobally() }
+
+            pasteboard.clearContents()
+            #expect(!TerminalPasteboardContent.hasText(in: pasteboard))
+            #expect(TerminalPasteboardContent.text(from: pasteboard) == nil)
+
+            pasteboard.clearContents()
+            pasteboard.setString("ls -la", forType: .string)
+            #expect(TerminalPasteboardContent.hasText(in: pasteboard))
+
+            pasteboard.clearContents()
+            pasteboard.writeObjects([URL(fileURLWithPath: "/tmp/a b") as NSURL])
+            #expect(TerminalPasteboardContent.hasText(in: pasteboard))
+            #expect(TerminalPasteboardContent.text(from: pasteboard) == "/tmp/a\\ b")
+
+            pasteboard.clearContents()
+            pasteboard.setData(Data([0x89, 0x50]), forType: .png)
+            #expect(!TerminalPasteboardContent.hasText(in: pasteboard))
+        }
+    }
+#endif

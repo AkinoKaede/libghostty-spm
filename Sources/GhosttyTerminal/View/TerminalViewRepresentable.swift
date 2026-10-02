@@ -24,9 +24,33 @@ struct TerminalViewRepresentable {
     /// was skipped even for the visible surface.
     let isSurfaceVisible: Bool
     let focusBinding: TerminalFocusBinding?
+    #if canImport(UIKit)
+        #if !targetEnvironment(macCatalyst)
+            /// Stored, like `isSurfaceVisible`, so a change to
+            /// `TerminalViewState.inputAccessoryItems` alone still runs the
+            /// update pass.
+            var inputAccessoryItems = TerminalInputAccessoryItem.defaultItems
+        #endif
+    #endif
 
     func configureView(_ view: TerminalView, initial: Bool) {
-        if initial {
+        // SwiftUI keeps the platform view when only the `context` argument
+        // changes (a tab switch without `.id`). The new state takes the
+        // delegate before the controller and configuration below can
+        // rebuild, so the rebuilt surface and every callback reach it, and
+        // the old state lets go of the view and its surface.
+        let outgoing = (view.delegate as? TerminalViewState).flatMap {
+            $0 === context ? nil : $0
+        }
+        if initial || outgoing != nil {
+            if let outgoing {
+                if outgoing.attachedView === view {
+                    outgoing.attachedView = nil
+                }
+                if outgoing.surface === view.surface {
+                    outgoing.surface = nil
+                }
+            }
             view.delegate = context
         }
 
@@ -44,6 +68,12 @@ struct TerminalViewRepresentable {
         // isEquivalent, which ignores resizeThrottleMilliseconds on purpose.
         view.configuration = configuration
 
+        // Same controller and an equivalent configuration: nothing rebuilt,
+        // so the surface the view already shows is the new state's now.
+        if outgoing != nil, let surface = view.surface, context.surface !== surface {
+            context.terminalDidAttachSurface(surface)
+        }
+
         // Forward only changes: stamping unconditionally would revert an
         // imperative `setSurfaceVisible` call on every SwiftUI update and
         // pay a per-update C call for nothing.
@@ -54,10 +84,8 @@ struct TerminalViewRepresentable {
 
         #if canImport(UIKit)
             #if !targetEnvironment(macCatalyst)
-                let accessoryItems = context.inputAccessoryItems
-                    ?? TerminalInputAccessoryItem.defaultItems
-                if view.inputAccessoryItems != accessoryItems {
-                    view.inputAccessoryItems = accessoryItems
+                if view.inputAccessoryItems != inputAccessoryItems {
+                    view.inputAccessoryItems = inputAccessoryItems
                 }
             #endif
         #endif
@@ -67,25 +95,22 @@ struct TerminalViewRepresentable {
         guard let binding else { return }
 
         DispatchQueue.main.async { [weak view] in
+            // Acquire-only, on both platforms: `FocusState` resets itself to
+            // nil whenever SwiftUI's own focus system re-evaluates (no native
+            // focusable view anchors it) and may never take the true the
+            // bridge writes, so treating false as "resign" drops focus right
+            // after a click or the keyboard right after it opens. Moving
+            // focus between surfaces doesn't need the resign either — the
+            // old first responder is retired when the next one acquires.
             #if canImport(UIKit)
                 guard let view, view.window != nil else { return }
-                // Acquire-only: `FocusState` resets itself to nil whenever
-                // SwiftUI's own focus system re-evaluates (no native focusable
-                // view anchors it), so treating false as "resign" tears the
-                // keyboard down right after it opens. Moving focus between
-                // surfaces doesn't need the resign either — UIKit retires the
-                // old first responder when the next surface acquires.
                 if binding.isFocused, !view.isFirstResponder {
                     view.becomeFirstResponder()
                 }
             #elseif canImport(AppKit)
                 guard let view, let window = view.window else { return }
-                if binding.isFocused {
-                    if window.firstResponder !== view {
-                        window.makeFirstResponder(view)
-                    }
-                } else if window.firstResponder === view {
-                    window.makeFirstResponder(nil)
+                if binding.isFocused, window.firstResponder !== view {
+                    window.makeFirstResponder(view)
                 }
             #endif
         }

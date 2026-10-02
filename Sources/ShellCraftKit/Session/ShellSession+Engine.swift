@@ -23,6 +23,9 @@ actor Engine {
     private var savedInput = ""
     private var pendingResizeRedrawTask: Task<Void, Never>?
     private var renderedInputRevision: UInt64 = 0
+    /// Rows of the rendered prompt+input block that have scrolled above the
+    /// top of the screen, where no cursor movement reaches.
+    private var renderedHiddenLineCount = 0
     private var renderedInputState = TerminalRenderedInputState(
         totalLineCount: 1,
         cursorLineOffset: 0,
@@ -41,8 +44,8 @@ actor Engine {
     }
 
     /// Consumes the session's events one at a time so writes are parsed in
-    /// arrival order; the parser keeps state across writes (`escapeState`,
-    /// `pendingText`), and one Task per write would race for the actor.
+    /// arrival order; the parser keeps state across writes (`pendingText`, a
+    /// CSI with parameters), and one Task per write would race for the actor.
     func run(_ events: AsyncStream<ShellSessionEvent>) async {
         for await event in events {
             switch event {
@@ -94,6 +97,7 @@ actor Engine {
             cursorPosition: cursorPosition,
             terminalColumns: Int(size.columns)
         )
+        renderedHiddenLineCount = hiddenLineCount(of: renderedInputState, printedFrom: 0)
         redrawInputLine()
 
         pendingResizeRedrawTask?.cancel()
@@ -116,6 +120,7 @@ actor Engine {
         for byte in data {
             handle(byte)
         }
+        endKeyPrefixAtWriteBoundary()
         flushPendingText()
     }
 
@@ -249,6 +254,21 @@ actor Engine {
             }
 
             pendingText.append(byte)
+        }
+    }
+
+    /// The terminal sends each key's sequence in one write, so a write that
+    /// ends on a bare `ESC`, `ESC [` or `ESC O` carried a key of its own
+    /// (Escape, Alt-[, Alt-Shift-O). Held over, that prefix would swallow the
+    /// next key as a meta byte or a CSI final byte.
+    private func endKeyPrefixAtWriteBoundary() {
+        switch escapeState {
+        case .escape:
+            escapeState = .none
+        case let .csi(buffer) where buffer.isEmpty:
+            escapeState = .none
+        case .csi, .none:
+            break
         }
     }
 
@@ -547,6 +567,7 @@ actor Engine {
             cursorPosition: cursorPosition,
             terminalColumns: Int(terminalSize.columns)
         )
+        renderedHiddenLineCount = hiddenLineCount(of: renderedInputState, printedFrom: 0)
         renderedInputRevision &+= 1
     }
 
@@ -571,14 +592,48 @@ actor Engine {
 
         moveCursorToRenderedInputStart(renderedInputState)
         clearRenderedBlock()
-        send(shell.prompt)
-        send(currentInput)
+        let firstLine = redrawFirstLine(for: nextState)
+        if firstLine == 0 {
+            // Only the prompt's last line shares a row with the input; the
+            // lines above it are still on screen.
+            send(shell.promptLastLine)
+            send(currentInput)
+        } else {
+            let offset = currentInput.terminalCharacterOffset(
+                startingLine: firstLine,
+                after: shell.promptDisplayWidth,
+                terminalColumns: Int(terminalSize.columns)
+            )
+            send(String(currentInput.dropFirst(offset)))
+        }
         moveCursor(
             from: renderedEndState,
             to: nextState
         )
         renderedInputState = nextState
+        renderedHiddenLineCount = hiddenLineCount(of: nextState, printedFrom: firstLine)
         renderedInputRevision &+= 1
+    }
+
+    /// The block row a redraw starts printing from at the top of the screen.
+    /// Rows already in scrollback stay there, so the redraw resumes at the
+    /// first one still on screen, unless the cursor would land above it or it
+    /// starts inside the prompt; then the whole block is printed again.
+    private func redrawFirstLine(for nextState: TerminalRenderedInputState) -> Int {
+        let hidden = renderedHiddenLineCount
+        guard hidden > 0, hidden <= nextState.cursorLineOffset else { return 0 }
+        guard shell.promptDisplayWidth <= hidden * max(Int(terminalSize.columns), 1) else { return 0 }
+        return hidden
+    }
+
+    /// A block printed from row `firstLine` at the top of the screen, or
+    /// from row 0 wherever the cursor was, keeps those rows hidden; once it
+    /// outgrows the screen it scrolls until its last row is the bottom one.
+    private func hiddenLineCount(
+        of state: TerminalRenderedInputState,
+        printedFrom firstLine: Int
+    ) -> Int {
+        max(firstLine, state.totalLineCount - max(Int(terminalSize.rows), 1))
     }
 
     private func redrawInputLineIfViewportStable(
@@ -628,6 +683,10 @@ actor Engine {
         )
         send(insertedText)
         renderedInputState = nextState
+        renderedHiddenLineCount = hiddenLineCount(
+            of: nextState,
+            printedFrom: renderedHiddenLineCount
+        )
         renderedInputRevision &+= 1
         return true
     }
@@ -648,8 +707,9 @@ actor Engine {
         _ state: TerminalRenderedInputState
     ) {
         send("\r")
-        guard state.cursorLineOffset > 0 else { return }
-        send("\u{1B}[\(state.cursorLineOffset)A\r")
+        let rows = state.cursorLineOffset - renderedHiddenLineCount
+        guard rows > 0 else { return }
+        send("\u{1B}[\(rows)A\r")
     }
 
     private func clearRenderedBlock() {

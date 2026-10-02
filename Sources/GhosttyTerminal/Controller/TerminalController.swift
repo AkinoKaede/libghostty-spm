@@ -64,6 +64,7 @@ public final class TerminalController {
     }
 
     private var wakeupObservers: [ObjectIdentifier: WakeupObserver] = [:]
+    nonisolated let wakeupGate = TerminalWakeupGate()
 
     func addWakeupObserver(
         _ key: ObjectIdentifier,

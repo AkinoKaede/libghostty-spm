@@ -32,6 +32,9 @@ public struct ShellDefinition: Sendable {
     public let prompt: String
     public let welcomeMessage: String
     public let fallbackMessage: @Sendable (String) -> String
+    /// The prompt's last line: what a redraw reprints after returning to the
+    /// start of the input's row, and the only part that shares a row with it.
+    let promptLastLine: String
     let promptDisplayWidth: Int
     private let commands: [String: ShellCommand]
     private let commandOrder: [String]
@@ -45,7 +48,11 @@ public struct ShellDefinition: Sendable {
         self.prompt = prompt
         self.welcomeMessage = welcomeMessage ?? Self.defaultWelcomeMessage
         fallbackMessage = fallback ?? { cmd in "\(cmd): command not found" }
-        promptDisplayWidth = prompt.terminalDisplayWidth
+        let scalars = prompt.unicodeScalars
+        let lastLineStart = scalars.lastIndex { $0 == "\n" || $0 == "\r" }
+            .map(scalars.index(after:)) ?? scalars.startIndex
+        promptLastLine = String(scalars[lastLineStart...])
+        promptDisplayWidth = promptLastLine.terminalDisplayWidth
 
         let userCommands = build()
         var ordered: [String] = []
@@ -122,12 +129,20 @@ public struct ShellDefinition: Sendable {
 
 extension String {
     var terminalDisplayWidth: Int {
-        var width = 0
+        terminalVisibleText.reduce(0) { $0 + $1.terminalCellWidth }
+    }
+
+    /// The text a terminal draws, with escape sequences removed: CSI
+    /// (`ESC [` … final), OSC and the other string controls (`ESC ]`, `P`,
+    /// `X`, `^`, `_` … BEL or `ESC \\`), and the short escapes (`ESC`,
+    /// intermediates, final — `ESC ( B`, `ESC 7`).
+    var terminalVisibleText: String {
+        var visible = String.UnicodeScalarView()
         var scalars = unicodeScalars.makeIterator()
 
         while let scalar = scalars.next() {
             guard scalar == "\u{1B}" else {
-                width += scalar.terminalCellWidth
+                visible.append(scalar)
                 continue
             }
 
@@ -135,18 +150,32 @@ extension String {
                 break
             }
 
-            guard next == "[" else {
-                continue
-            }
+            switch next {
+            case "[":
+                while let parameter = scalars.next() {
+                    if (0x40 ... 0x7E).contains(parameter.value) {
+                        break
+                    }
+                }
 
-            while let parameter = scalars.next() {
-                if (0x40 ... 0x7E).contains(parameter.value) {
-                    break
+            case "]", "P", "X", "^", "_":
+                var previous: Unicode.Scalar?
+                while let payload = scalars.next() {
+                    if payload == "\u{07}" || (previous == "\u{1B}" && payload == "\\") {
+                        break
+                    }
+                    previous = payload
+                }
+
+            default:
+                var final = next
+                while (0x20 ... 0x2F).contains(final.value), let following = scalars.next() {
+                    final = following
                 }
             }
         }
 
-        return width
+        return String(visible)
     }
 
     /// Cells occupied once this text is appended to a block already `width`
@@ -156,12 +185,59 @@ extension String {
     func terminalWrappedDisplayWidth(after width: Int, terminalColumns: Int) -> Int {
         let columns = max(terminalColumns, 1)
         var width = width
-        for scalar in unicodeScalars {
-            let cellWidth = scalar.terminalCellWidth
+        for character in self {
+            let cellWidth = character.terminalCellWidth
             if cellWidth == 2, width % columns == columns - 1 {
                 width += 1
             }
             width += cellWidth
+        }
+        return width
+    }
+
+    /// Offset of the first character that `terminalWrappedDisplayWidth`
+    /// places on row `line` or later, or `count` when every character sits
+    /// above it.
+    func terminalCharacterOffset(
+        startingLine line: Int,
+        after width: Int,
+        terminalColumns: Int
+    ) -> Int {
+        let columns = max(terminalColumns, 1)
+        var width = width
+        for (offset, character) in enumerated() {
+            let cellWidth = character.terminalCellWidth
+            if cellWidth == 2, width % columns == columns - 1 {
+                width += 1
+            }
+            if width / columns >= line {
+                return offset
+            }
+            width += cellWidth
+        }
+        return count
+    }
+}
+
+extension Character {
+    /// Ghostty clusters graphemes by default (`grapheme-width-method =
+    /// unicode`, mode 2027): a cluster takes the width of its first scalar,
+    /// an emoji presentation selector (VS16) widens a narrow emoji base to
+    /// two cells, and a text presentation selector (VS15) narrows a wide one
+    /// to one. Skin tones, ZWJ partners, and jamo vowels add nothing.
+    var terminalCellWidth: Int {
+        guard let first = unicodeScalars.first else {
+            return 0
+        }
+        let width = first.terminalCellWidth
+        guard first.properties.isEmoji else {
+            return width
+        }
+        if width == 1, unicodeScalars.contains("\u{FE0F}") {
+            return 2
+        }
+        if width == 2, unicodeScalars.contains("\u{FE0E}") {
+            return 1
         }
         return width
     }
@@ -242,6 +318,7 @@ private extension UnicodeScalar {
              0x1F004,
              0x1F0CF,
              0x1F18E,
+             0x1F1E6 ... 0x1F1FF,
              0x1F191 ... 0x1F19A,
              0x1F200 ... 0x1F265,
              0x1F300 ... 0x1F64F,

@@ -75,6 +75,22 @@ final class ViewController: NSViewController {
             terminalView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             terminalView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+
+        #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+                let output = TerminalOutputAccessibilityView(
+                    session: shellSession.terminalSession
+                )
+                output.translatesAutoresizingMaskIntoConstraints = false
+                view.addSubview(output)
+                NSLayoutConstraint.activate([
+                    output.topAnchor.constraint(equalTo: view.topAnchor),
+                    output.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                    output.widthAnchor.constraint(equalToConstant: 1),
+                    output.heightAnchor.constraint(equalToConstant: 1),
+                ])
+            }
+        #endif
     }
 
     private func activateTerminal() {
@@ -82,6 +98,36 @@ final class ViewController: NSViewController {
         shellSession.start()
     }
 }
+
+#if DEBUG
+    /// UI tests read the shell's viewport through this element's value; it
+    /// draws nothing and takes no clicks.
+    private final class TerminalOutputAccessibilityView: NSView {
+        private let session: InMemoryTerminalSession
+
+        init(session: InMemoryTerminalSession) {
+            self.session = session
+            super.init(frame: .zero)
+            setAccessibilityElement(true)
+            setAccessibilityRole(.staticText)
+            setAccessibilityIdentifier("terminal.output")
+            setAccessibilityLabel("Terminal Output")
+        }
+
+        @available(*, unavailable)
+        required init?(coder _: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func hitTest(_: NSPoint) -> NSView? {
+            nil
+        }
+
+        override func accessibilityValue() -> Any? {
+            session.readViewportText()
+        }
+    }
+#endif
 
 // MARK: - Terminal Callbacks
 

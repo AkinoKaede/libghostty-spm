@@ -9,6 +9,7 @@ final class ViewController: UIViewController {
 
     private lazy var terminalView: TerminalView = .init(frame: .zero)
     private lazy var shellSession: ShellSession = .init(shell: defaultSandboxShell)
+    private var isKeyboardVisible = false
     private lazy var controller: TerminalController = .init(
         theme: Self.savedTerminalTheme()
     ) { builder in
@@ -22,6 +23,7 @@ final class ViewController: UIViewController {
         configureTerminalView()
         configureThemeMenu()
         applyBackgroundForCurrentAppearance()
+        observeSoftwareKeyboard()
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -43,6 +45,16 @@ final class ViewController: UIViewController {
         applyBackgroundForCurrentAppearance()
     }
 
+    override func viewWillTransition(
+        to size: CGSize,
+        with coordinator: any UIViewControllerTransitionCoordinator
+    ) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate { [weak self] _ in
+            self?.updateNavigationBarVisibility(animated: false)
+        }
+    }
+
     private func configureTerminalView() {
         terminalView.delegate = self
         terminalView.isAccessibilityElement = true
@@ -59,8 +71,11 @@ final class ViewController: UIViewController {
 
         NSLayoutConstraint.activate([
             terminalView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            terminalView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            terminalView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            // The safe area, not the view edges: in landscape the sensor
+            // housing and the rounded corners sit over the first and last
+            // columns. The view's background fills the margins.
+            terminalView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            terminalView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
             terminalView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
         ])
 
@@ -79,6 +94,45 @@ final class ViewController: UIViewController {
                 ])
             }
         #endif
+    }
+
+    // MARK: - Compact Height
+
+    /// A landscape iPhone with the keyboard and the accessory bar up leaves
+    /// one terminal row under the navigation bar, so the bar steps aside
+    /// while the keyboard is up there and comes back with the theme menu
+    /// when a tap on the terminal puts the keyboard away.
+    private func observeSoftwareKeyboard() {
+        let center = NotificationCenter.default
+        center.addObserver(
+            self,
+            selector: #selector(keyboardWillShow),
+            name: UIResponder.keyboardWillShowNotification,
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(keyboardWillHide),
+            name: UIResponder.keyboardWillHideNotification,
+            object: nil
+        )
+    }
+
+    @objc private func keyboardWillShow() {
+        isKeyboardVisible = true
+        updateNavigationBarVisibility(animated: true)
+    }
+
+    @objc private func keyboardWillHide() {
+        isKeyboardVisible = false
+        updateNavigationBarVisibility(animated: true)
+    }
+
+    private func updateNavigationBarVisibility(animated: Bool) {
+        guard let navigationController else { return }
+        let hidden = isKeyboardVisible && view.window?.traitCollection.verticalSizeClass == .compact
+        guard navigationController.isNavigationBarHidden != hidden else { return }
+        navigationController.setNavigationBarHidden(hidden, animated: animated)
     }
 
     private func activateTerminal() {
@@ -118,10 +172,23 @@ final class ViewController: UIViewController {
         let key = isDarkMode ? Self.darkThemeKey : Self.lightThemeKey
         // Backgrounds of the `.afterglow` / `.alabaster` fallbacks in savedTerminalTheme().
         let defaultBackground = isDarkMode ? "212121" : "F7F7F7"
-        let background = Self.savedThemeDefinition(forKey: key)?.background ?? defaultBackground
-        if let bgColor = UIColor(hexString: background) {
+        // Foregrounds of the same fallbacks.
+        let defaultForeground = isDarkMode ? "D0D0D0" : "000000"
+        let theme = Self.savedThemeDefinition(forKey: key)
+        if let bgColor = UIColor(hexString: theme?.background ?? defaultBackground) {
             view.backgroundColor = bgColor
         }
+        // A dark theme picked in light mode (or the reverse) puts the
+        // system-colored title on a background of the opposite shade, so
+        // the bar takes the theme's foreground instead.
+        let foreground = UIColor(hexString: theme?.foreground ?? defaultForeground) ?? .label
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithTransparentBackground()
+        appearance.titleTextAttributes = [.foregroundColor: foreground]
+        navigationItem.standardAppearance = appearance
+        navigationItem.scrollEdgeAppearance = appearance
+        navigationItem.compactAppearance = appearance
+        navigationItem.rightBarButtonItem?.tintColor = foreground
     }
 
     // MARK: - Theme Menu

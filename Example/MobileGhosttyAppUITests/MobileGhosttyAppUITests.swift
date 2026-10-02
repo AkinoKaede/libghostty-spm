@@ -20,17 +20,308 @@ import XCTest
             app.launchArguments = ["--ui-testing"]
             installSystemAlertHandler()
             #if !targetEnvironment(macCatalyst)
-                if UIDevice.current.userInterfaceIdiom == .pad {
-                    XCUIDevice.shared.orientation = .landscapeLeft
-                }
+                XCUIDevice.shared.orientation = launchOrientation
             #endif
             app.launch()
         }
 
         override func tearDownWithError() throws {
             capture("final-state")
+            #if !targetEnvironment(macCatalyst)
+                if XCUIDevice.shared.orientation != launchOrientation {
+                    XCUIDevice.shared.orientation = launchOrientation
+                }
+            #endif
             app = nil
         }
+
+        #if !targetEnvironment(macCatalyst)
+            private var launchOrientation: UIDeviceOrientation {
+                UIDevice.current.userInterfaceIdiom == .pad ? .landscapeLeft : .portrait
+            }
+        #endif
+
+        // MARK: - Lifecycle and stress
+
+        func testTypedCommandBurstProducesEveryOutputInOrder() throws {
+            let terminal = try requireTerminalInteractionTarget()
+            typeTerminalText("clear\n", in: terminal)
+            let expected = (1 ... 8).map { String(format: "burst-%02d", $0) }
+            let burst = expected.map { "echo \($0)\n" }.joined()
+            typeTerminalText(burst, in: terminal)
+
+            let viewport = waitForViewport("all burst outputs") { text in
+                Self.outputLines(of: text).filter { $0.hasPrefix("burst-") } == expected
+            }
+            XCTAssertNotNil(viewport)
+            capture("burst-output")
+        }
+
+        func testBackgroundForegroundKeepsTerminalUsable() throws {
+            let terminal = try requireTerminalInteractionTarget()
+            typeTerminalText("echo before-background\n", in: terminal)
+            waitForOutputLine("before-background")
+
+            for cycle in 1 ... 3 {
+                sendAppToBackgroundAndBack()
+                capture("foreground-\(cycle)")
+                XCTAssertTrue(
+                    Self.outputLines(of: viewportText()).contains("before-background"),
+                    "Earlier output was lost after background cycle \(cycle)"
+                )
+                typeTerminalText("echo after-foreground-\(cycle)\n", in: terminal)
+                waitForOutputLine("after-foreground-\(cycle)")
+            }
+        }
+
+        func testLongOutputScrollsBackAndReturnsOnTyping() throws {
+            let terminal = try requireTerminalInteractionTarget()
+            typeTerminalText(String(repeating: "help\n", count: 6) + "echo long-output-done\n", in: terminal)
+            // Trimmed lines lose the prompt's trailing space.
+            let bottom = waitForViewport("six help blocks") { text in
+                let lines = Self.outputLines(of: text)
+                return lines.contains("long-output-done") && lines.last?.hasSuffix("%") == true
+            }
+            let bottomText = try XCTUnwrap(bottom)
+
+            scrollTerminalIntoHistory(terminal)
+            waitForViewport("viewport scrolled into history") { $0 != bottomText }
+            capture("scrolled-into-history")
+
+            typeTerminalText("echo after-scroll\n", in: terminal)
+            waitForOutputLine("after-scroll")
+            capture("scrolled-back-on-typing")
+        }
+
+        func testRelaunchStartsAFreshUsableTerminal() throws {
+            var terminal = try requireTerminalInteractionTarget()
+            typeTerminalText("echo before-relaunch\n", in: terminal)
+            waitForOutputLine("before-relaunch")
+
+            app.terminate()
+            XCTAssertTrue(app.wait(for: .notRunning, timeout: 10))
+            app.launch()
+            XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+
+            terminal = try requireTerminalInteractionTarget()
+            let fresh = waitForViewport("welcome banner after relaunch") {
+                $0.contains("GhosttyKit Sandbox Demo")
+            }
+            XCTAssertFalse(fresh?.contains("before-relaunch") ?? true)
+            typeTerminalText("echo after-relaunch\n", in: terminal)
+            waitForOutputLine("after-relaunch")
+        }
+
+        #if targetEnvironment(macCatalyst)
+            func testWindowResizeChangesGridAndKeepsTerminalUsable() throws {
+                let terminal = try requireTerminalInteractionTarget()
+                let original = try XCTUnwrap(terminalGridSize(in: terminal))
+
+                let window = app.windows.firstMatch
+                let originalWidth = window.frame.width
+                // The left edge: a window as wide as the screen has its right
+                // edge on the display border, where a drag does not resize.
+                dragWindowLeftEdge(window, by: 240)
+                waitForFrameWidth(of: window) { $0 < originalWidth - 100 }
+                let narrowed = try XCTUnwrap(terminalGridSize(in: terminal))
+                XCTAssertLessThan(narrowed.columns, original.columns)
+                capture("window-narrowed")
+
+                dragWindowLeftEdge(window, by: -240)
+                waitForFrameWidth(of: window) { $0 > originalWidth - 20 }
+                let restored = try XCTUnwrap(terminalGridSize(in: terminal))
+                XCTAssertGreaterThan(restored.columns, narrowed.columns)
+                typeTerminalText("echo after-resize\n", in: terminal)
+                waitForOutputLine("after-resize")
+            }
+        #else
+            func testRotationResizesGridAndKeepsTerminalUsable() throws {
+                let terminal = try requireTerminalInteractionTarget()
+                let original = try XCTUnwrap(terminalGridSize(in: terminal))
+                let rotated: UIDeviceOrientation = isIPad ? .portrait : .landscapeLeft
+
+                XCUIDevice.shared.orientation = rotated
+                let turned = try XCTUnwrap(waitForGridSize(in: terminal) { $0.columns != original.columns })
+                if isIPad {
+                    XCTAssertLessThan(turned.columns, original.columns)
+                } else {
+                    XCTAssertGreaterThan(turned.columns, original.columns)
+                }
+                capture("rotated")
+                typeTerminalText("echo rotated\n", in: terminal)
+                waitForOutputLine("rotated")
+
+                XCUIDevice.shared.orientation = launchOrientation
+                let restored = try XCTUnwrap(waitForGridSize(in: terminal) { $0.columns == original.columns })
+                XCTAssertEqual(restored.columns, original.columns)
+                typeTerminalText("echo rotated-back\n", in: terminal)
+                waitForOutputLine("rotated-back")
+            }
+
+            func testSoftwareKeyboardToggleResizesAndKeepsTerminalUsable() throws {
+                let terminal = try requireTerminalInteractionTarget()
+                XCTAssertTrue(prepareTerminalForTyping(terminal))
+                let keyboard = app.keyboards.firstMatch
+                guard keyboard.waitForExistence(timeout: 3) else {
+                    throw XCTSkip("No software keyboard: the simulator has a hardware keyboard connected")
+                }
+                let shownGrid = try XCTUnwrap(terminalGridSize(in: terminal))
+                let shownHeight = terminal.frame.height
+
+                for cycle in 1 ... 3 {
+                    tapTerminal(in: terminal)
+                    XCTAssertTrue(keyboard.waitForNonExistence(timeout: 4), "Keyboard stayed up, cycle \(cycle)")
+                    XCTAssertGreaterThan(terminal.frame.height, shownHeight, "Terminal did not grow, cycle \(cycle)")
+                    tapTerminal(in: terminal)
+                    XCTAssertTrue(keyboard.waitForExistence(timeout: 4), "Keyboard did not return, cycle \(cycle)")
+                }
+                capture("keyboard-toggled")
+
+                let finalGrid = try XCTUnwrap(terminalGridSize(in: terminal))
+                XCTAssertEqual(finalGrid, shownGrid)
+                typeTerminalText("echo after-keyboard-toggle\n", in: terminal)
+                waitForOutputLine("after-keyboard-toggle")
+            }
+        #endif
+
+        // MARK: - Lifecycle helpers
+
+        private struct GridSize: Equatable {
+            var columns: Int
+            var rows: Int
+        }
+
+        private var outputElement: XCUIElement {
+            app.descendants(matching: .any)["terminal.output"].firstMatch
+        }
+
+        private func viewportText() -> String {
+            (outputElement.value as? String) ?? ""
+        }
+
+        private static func outputLines(of viewport: String) -> [String] {
+            viewport.components(separatedBy: "\n").map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }.filter { !$0.isEmpty }
+        }
+
+        @discardableResult
+        private func waitForViewport(
+            _ description: String,
+            timeout: TimeInterval = 8,
+            until condition: (String) -> Bool
+        ) -> String? {
+            let deadline = Date().addingTimeInterval(timeout)
+            repeat {
+                let text = viewportText()
+                if condition(text) {
+                    return text
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            } while Date() < deadline
+            log("viewport-timeout", "\(description)\n---\n\(viewportText())")
+            XCTFail("Viewport never showed: \(description)")
+            return nil
+        }
+
+        private func waitForOutputLine(_ line: String) {
+            waitForViewport("output line \(line)") {
+                Self.outputLines(of: $0).contains(line)
+            }
+        }
+
+        /// Clears the screen and runs `size`, so the one `columns:` line on
+        /// screen is the grid the shell sees now.
+        private func terminalGridSize(in terminal: XCUIElement) -> GridSize? {
+            typeTerminalText("clear\nsize\n", in: terminal)
+            var grid: GridSize?
+            waitForViewport("size output") { text in
+                grid = Self.parseGridSize(text)
+                return grid != nil
+            }
+            return grid
+        }
+
+        private func waitForGridSize(
+            in terminal: XCUIElement,
+            timeout: TimeInterval = 10,
+            until condition: (GridSize) -> Bool
+        ) -> GridSize? {
+            let deadline = Date().addingTimeInterval(timeout)
+            var last: GridSize?
+            repeat {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+                last = terminalGridSize(in: terminal)
+                if let last, condition(last) {
+                    return last
+                }
+            } while Date() < deadline
+            XCTFail("Grid size never reached the expected value; last \(String(describing: last))")
+            return nil
+        }
+
+        private static func parseGridSize(_ viewport: String) -> GridSize? {
+            for line in outputLines(of: viewport).reversed() where line.hasPrefix("columns: ") {
+                let numbers = line.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+                guard numbers.count >= 2 else { continue }
+                return GridSize(columns: numbers[0], rows: numbers[1])
+            }
+            return nil
+        }
+
+        private func sendAppToBackgroundAndBack() {
+            #if targetEnvironment(macCatalyst)
+                // A Cmd+H sent while the app is still settling after the
+                // previous unhide can be dropped; one retry tells that apart
+                // from an app that cannot hide.
+                var result = XCTWaiter.Result.timedOut
+                for _ in 1 ... 2 where result != .completed {
+                    app.typeKey("h", modifierFlags: .command)
+                    let hidden = XCTNSPredicateExpectation(
+                        predicate: NSPredicate(format: "isHittable == false"),
+                        object: app.windows.firstMatch
+                    )
+                    result = XCTWaiter.wait(for: [hidden], timeout: 5)
+                }
+                XCTAssertEqual(result, .completed)
+                app.activate()
+                XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 5))
+            #else
+                XCUIDevice.shared.press(.home)
+                let backgrounded = XCTNSPredicateExpectation(
+                    predicate: NSPredicate(format: "state != %d", XCUIApplication.State.runningForeground.rawValue),
+                    object: app
+                )
+                XCTAssertEqual(XCTWaiter.wait(for: [backgrounded], timeout: 8), .completed)
+                app.activate()
+                XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+            #endif
+        }
+
+        private func scrollTerminalIntoHistory(_ terminal: XCUIElement) {
+            #if targetEnvironment(macCatalyst)
+                terminal.scroll(byDeltaX: 0, deltaY: 300)
+            #else
+                terminal.swipeDown(velocity: .fast)
+            #endif
+        }
+
+        #if targetEnvironment(macCatalyst)
+            private func dragWindowLeftEdge(_ window: XCUIElement, by dx: CGFloat) {
+                let edge = window.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5))
+                    .withOffset(CGVector(dx: 1, dy: 0))
+                edge.press(forDuration: 0.3, thenDragTo: edge.withOffset(CGVector(dx: dx, dy: 0)))
+            }
+
+            private func waitForFrameWidth(of window: XCUIElement, _ condition: (CGFloat) -> Bool) {
+                let deadline = Date().addingTimeInterval(5)
+                while Date() < deadline {
+                    if condition(window.frame.width) { return }
+                    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+                }
+                XCTFail("Window width never changed as expected; now \(window.frame.width)")
+            }
+        #endif
 
         func testTerminalUserOperations() throws {
             let terminal = try requireTerminalInteractionTarget()

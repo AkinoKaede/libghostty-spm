@@ -52,11 +52,14 @@ public let defaultSandboxShell = ShellDefinition(
 
 public let sandboxShell = defaultSandboxShell
 
+/// ANSI palette slots, not fixed 256-color indices: a theme picks its
+/// blue/yellow/red to read on its own background, and a fixed light yellow
+/// (`38;5;221`) vanished on every light theme.
 private enum SandboxShellStyle {
     static let reset = "\u{1B}[0m"
-    static let accent = "\u{1B}[38;5;110m"
-    static let highlight = "\u{1B}[38;5;221m"
-    static let error = "\u{1B}[38;5;203m"
+    static let accent = "\u{1B}[34m"
+    static let highlight = "\u{1B}[33m"
+    static let error = "\u{1B}[31m"
     static let emphasis = "\u{1B}[1m"
 
     static let prompt = "\(accent)sandbox\(reset)@\(highlight)ghostty\(reset) % "

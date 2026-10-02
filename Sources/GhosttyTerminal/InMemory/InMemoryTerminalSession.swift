@@ -170,13 +170,44 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
     /// cannot block the caller or the main thread. Bytes that arrive before a
     /// surface attaches are buffered (oldest dropped past a 1 MiB cap) and
     /// flushed on attach — hosts do not need to hold their connection until
-    /// the first viewport report.
+    /// the first viewport report. Bytes still queued when a surface is torn
+    /// down go to the next one too.
     public func receive(_ data: Data) {
         surfaceAccess.enqueueWrite(data)
         TerminalDebugLog.log(
             .output,
             "terminal <- host \(TerminalDebugLog.describe(data))"
         )
+    }
+
+    /// Bytes passed to ``receive(_:)`` that the terminal has not parsed yet.
+    ///
+    /// `receive(_:)` never blocks, so a transport faster than the parser
+    /// queues output here without limit while a surface is attached. A host
+    /// that can pause its source reads this, or registers
+    /// ``setOutputBacklogHandler(highWater:lowWater:_:)``, to apply
+    /// backpressure.
+    public var pendingOutputByteCount: Int {
+        surfaceAccess.pendingByteCount
+    }
+
+    /// Calls `handler(true)` once unparsed output reaches `highWater` bytes
+    /// and `handler(false)` once it falls back to `lowWater` or below — the
+    /// moments for a host to pause and resume its transport. The handler runs
+    /// on whichever thread crossed the mark (a `receive(_:)` caller or the
+    /// session's output queue), outside the session's lock. A new handler
+    /// replaces the previous one and starts unbacklogged, so it hears `true`
+    /// straight away when the backlog is already past `highWater`; `nil`
+    /// removes it.
+    public func setOutputBacklogHandler(
+        highWater: Int,
+        lowWater: Int,
+        _ handler: (@Sendable (_ isBacklogged: Bool) -> Void)?
+    ) {
+        precondition(lowWater < highWater, "lowWater must be below highWater")
+        surfaceAccess.setBacklogObserver(handler.map {
+            .init(highWater: highWater, lowWater: lowWater, handler: $0)
+        })
     }
 
     /// Feed a UTF-8 string into the terminal from the host backend.
@@ -201,7 +232,7 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
 
     /// Enqueue a host-managed process exit after all previously received data.
     /// Like that data, an exit that arrives before a surface attaches waits
-    /// for the next one and is delivered after the buffered bytes.
+    /// for the next one, in the same order relative to the buffered bytes.
     public func finish(exitCode: UInt32, runtimeMilliseconds: UInt64) {
         surfaceAccess.enqueueProcessExit(
             exitCode: exitCode,
@@ -307,9 +338,16 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
     /// (rather than on this call returning) can observe writeback for that history arrive
     /// late, after the flag already says replay is over.
     ///
+    /// Output received while no surface is attached is parsed only when the next surface
+    /// attaches, so this call cannot wait for it: it returns `false` when such output is
+    /// still waiting, and the writeback for it arrives after that attach. A host that
+    /// replays history before the view has attached its surface should treat `false` as
+    /// "replay not done yet".
+    ///
     /// Safe on the main thread: parsing fills ghostty's app mailbox, which only the main
     /// thread drains, so a main-thread caller ticks the app while it waits.
-    public func waitForPendingOutput() {
+    @discardableResult
+    public func waitForPendingOutput() -> Bool {
         surfaceAccess.waitForPendingOutput()
     }
 

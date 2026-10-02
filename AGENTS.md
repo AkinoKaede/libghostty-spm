@@ -11,7 +11,7 @@ SPM package wrapping Ghostty terminal emulator C library for Apple platforms (ma
 - **GhosttyTheme** — 485 terminal color themes from iTerm2-Color-Schemes (MIT License, depends on GhosttyTerminal)
 - **ShellCraftKit** — sandboxed shell emulation framework (depends on GhosttyTerminal)
 
-Binary target: pre-built `libghostty` XCFramework. Dependency: DisplayLink ^3.0.0.
+Binary target: pre-built `libghostty` XCFramework. Dependency: DisplayLink ^3.0.1.
 
 ## No GPL Files (hard rule — review every PR for it)
 

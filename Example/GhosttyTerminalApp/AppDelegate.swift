@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TerminalDebugLog.sink = { message in
             NSLog("%@", message)
         }
+        NSApp.mainMenu = MainMenu.make()
 
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: defaultContentSize),
@@ -24,6 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titlebarAppearsTransparent = false
         window.contentMinSize = minimumContentSize
         window.contentViewController = ViewController()
+        // Assigning the controller sizes the window to its view, which starts
+        // at zero and is clamped to the minimum; put the default back.
+        window.setContentSize(defaultContentSize)
         window.center()
         window.makeKeyAndOrderFront(nil)
         repairRestoredWindowSizeIfNeeded(window)

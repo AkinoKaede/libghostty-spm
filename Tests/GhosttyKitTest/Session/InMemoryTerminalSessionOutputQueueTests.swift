@@ -52,24 +52,35 @@ struct InMemoryTerminalSessionOutputQueueTests {
         #expect(events.values == ["first", "second", "exit:7:42"])
     }
 
+    /// Output the host handed over before a rebuild must not vanish because
+    /// the output queue had not reached it yet, while output received a
+    /// moment later survives: both belong to the next surface, in order.
     @Test
-    func `surface teardown waits for active write and drops queued stale writes`() {
+    func `surface teardown waits for active write and hands queued output to the next surface`() {
         let firstWriteStarted = DispatchSemaphore(value: 0)
         let allowFirstWriteToFinish = DispatchSemaphore(value: 0)
         let clearFinished = DispatchSemaphore(value: 0)
-        let writes = LockedValues<String>()
+        let events = LockedValues<String>()
         let surface = SendableSurface(testSurface(3))
-        let session = makeSession { _, data in
-            let value = String(decoding: data, as: UTF8.self)
-            writes.append(value)
-            if value == "first" {
-                firstWriteStarted.signal()
-                allowFirstWriteToFinish.wait()
+        let session = InMemoryTerminalSession(
+            write: { _ in },
+            resize: { _ in },
+            surfaceWrite: { surface, data in
+                let value = String(decoding: data, as: UTF8.self)
+                events.append("\(Int(bitPattern: surface)):\(value)")
+                if value == "first" {
+                    firstWriteStarted.signal()
+                    allowFirstWriteToFinish.wait()
+                }
+            },
+            processExit: { surface, exitCode, _ in
+                events.append("\(Int(bitPattern: surface)):exit:\(exitCode)")
             }
-        }
+        )
         session.setSurface(surface.rawValue)
         session.receive("first")
-        session.receive("stale")
+        session.receive("second")
+        session.finish(exitCode: 3, runtimeMilliseconds: 0)
         #expect(firstWriteStarted.wait(timeout: .now() + 1) == .success)
 
         DispatchQueue.global().async {
@@ -87,9 +98,11 @@ struct InMemoryTerminalSessionOutputQueueTests {
 
         allowFirstWriteToFinish.signal()
         #expect(clearFinished.wait(timeout: .now() + 1) == .success)
+        session.receive("third")
+        session.setSurface(testSurface(8))
         session.waitForPendingOutput()
 
-        #expect(writes.values == ["first"])
+        #expect(events.values == ["3:first", "8:second", "8:exit:3", "8:third"])
     }
 
     @Test

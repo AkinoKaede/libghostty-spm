@@ -42,16 +42,62 @@
                 name: UIScene.didActivateNotification,
                 object: nil
             )
+            // With several scenes (iPad multi-window, Stage Manager) one can
+            // go to the background while the app stays foreground, so the
+            // app-level notifications never fire for it. These follow this
+            // view's own scene; the handlers ignore every other scene.
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(sceneDidEnterBackground),
+                name: UIScene.didEnterBackgroundNotification,
+                object: nil
+            )
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(sceneWillEnterForeground),
+                name: UIScene.willEnterForegroundNotification,
+                object: nil
+            )
+        }
+
+        /// Whether this view's scene is on screen, `nil` when the view has no
+        /// scene to ask (detached, or an app without scenes). An inactive
+        /// foreground scene still counts: Stage Manager shows every window
+        /// but the key one as `foregroundInactive`.
+        var isWindowSceneForeground: Bool? {
+            guard let scene = window?.windowScene else { return nil }
+            switch scene.activationState {
+            case .foregroundActive, .foregroundInactive:
+                return true
+            default:
+                return false
+            }
         }
 
         func syncApplicationActiveState() {
             core.setApplicationActive(
-                UIApplication.shared.applicationState == .active
+                isWindowSceneForeground
+                    ?? (UIApplication.shared.applicationState == .active)
             )
+        }
+
+        private func isOwnScene(_ notification: Notification) -> Bool {
+            guard let scene = notification.object as? UIScene else { return false }
+            return scene === window?.windowScene
         }
 
         @objc func applicationDidEnterBackground(_: Notification) {
             TerminalDebugLog.log(.lifecycle, "application did enter background")
+            suspendForBackground()
+        }
+
+        @objc func sceneDidEnterBackground(_ notification: Notification) {
+            guard isOwnScene(notification) else { return }
+            TerminalDebugLog.log(.lifecycle, "scene did enter background")
+            suspendForBackground()
+        }
+
+        private func suspendForBackground() {
             stopMomentumScrolling(sendTerminalEndEvent: false)
             #if !targetEnvironment(macCatalyst)
                 stopKeyRepeat()
@@ -61,6 +107,19 @@
 
         @objc func applicationDidBecomeActive(_: Notification) {
             TerminalDebugLog.log(.lifecycle, "application did become active")
+            updateDisplayScale()
+            updateColorScheme()
+            // Another scene activating says nothing about this one: a view
+            // whose scene is still in the background stays suspended.
+            core.setApplicationActive(isWindowSceneForeground ?? true)
+        }
+
+        /// A scene can come back on screen without activating (a Stage
+        /// Manager window that is not the key one), so the activation
+        /// notification above would never resume it.
+        @objc func sceneWillEnterForeground(_ notification: Notification) {
+            guard isOwnScene(notification) else { return }
+            TerminalDebugLog.log(.lifecycle, "scene will enter foreground")
             updateDisplayScale()
             updateColorScheme()
             core.setApplicationActive(true)
@@ -115,6 +174,9 @@
                 // cover's temporary one, and the view's own teardown frees
                 // the surface when the terminal really goes away.
                 cancelReportedPointerButton()
+                // The momentum link retains this view and would keep
+                // scrolling a detached surface until the fling decays.
+                stopMomentumScrolling(sendTerminalEndEvent: false)
                 core.stopDisplayLink()
             }
         }
@@ -240,7 +302,7 @@
                let viewState = delegate as? TerminalViewState,
                viewState.controller === controller
             {
-                viewState.adopt(terminalColorScheme: scheme)
+                viewState.adoptSoon(terminalColorScheme: scheme)
             } else {
                 controller?.setColorScheme(scheme)
             }

@@ -47,6 +47,11 @@
             if ctrl != .inactive { mods.insert(.ctrl) }
             if alt != .inactive { mods.insert(.alt) }
             if command != .inactive { mods.insert(.super_) }
+            // Only an armed modifier changes on consume; with none armed
+            // (nothing active, or locks only) there is no transition to
+            // report to the host or the bar.
+            let hasArmed = ctrl == .armed || alt == .armed || command == .armed
+            guard hasArmed else { return mods }
             if ctrl == .armed { ctrl = .inactive }
             if alt == .armed { alt = .inactive }
             if command == .armed { command = .inactive }

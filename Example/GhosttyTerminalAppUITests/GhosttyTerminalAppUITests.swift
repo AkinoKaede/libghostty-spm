@@ -8,7 +8,9 @@ final class GhosttyTerminalAppUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArguments = ["--ui-testing"]
+        // Skip state restoration: a window restored at the minimum size moves
+        // every normalized coordinate below onto a different terminal row.
+        app.launchArguments = ["--ui-testing", "-ApplePersistenceIgnoreState", "YES"]
         systemAlertMonitor = installSystemAlertHandler()
         app.launch()
     }
@@ -61,6 +63,188 @@ final class GhosttyTerminalAppUITests: XCTestCase {
         openCopyMenuAndCopySelection(in: terminal, screenshotName: "14-pointer-copy-menu")
         longPressTerminal(in: terminal)
         capture("15-long-press")
+    }
+
+    // MARK: - Lifecycle and stress
+
+    func testTypedCommandBurstProducesEveryOutputInOrder() throws {
+        let terminal = try requireTerminalInteractionTarget()
+        typeTerminalText("clear\n", in: terminal)
+        let expected = (1 ... 12).map { String(format: "burst-%02d", $0) }
+        typeTerminalText(expected.map { "echo \($0)\n" }.joined(), in: terminal)
+
+        let viewport = waitForViewport("all burst outputs") { text in
+            Self.isOrderedTail(Self.outputLines(of: text).filter { $0.hasPrefix("burst-") }, of: expected)
+        }
+        XCTAssertNotNil(viewport)
+        capture("burst-output")
+    }
+
+    func testHideAndUnhideKeepsFocusAndTyping() throws {
+        let terminal = try requireTerminalInteractionTarget()
+        typeTerminalText("echo before-hide\n", in: terminal)
+        waitForOutputLine("before-hide")
+
+        for cycle in 1 ... 3 {
+            app.typeKey("h", modifierFlags: .command)
+            let hidden = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "isHittable == false"),
+                object: terminal
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 5), .completed, "App did not hide, cycle \(cycle)")
+            app.activate()
+            XCTAssertTrue(terminal.waitForHittable(timeout: 5), "Terminal did not come back, cycle \(cycle)")
+            capture("unhidden-\(cycle)")
+            XCTAssertTrue(Self.outputLines(of: viewportText()).contains("before-hide"))
+
+            // No click: the terminal must still be first responder after unhide.
+            app.typeText("echo after-unhide-\(cycle)\n")
+            waitForOutputLine("after-unhide-\(cycle)")
+        }
+    }
+
+    func testLongOutputScrollsBackAndReturnsOnTyping() throws {
+        let terminal = try requireTerminalInteractionTarget()
+        typeTerminalText(String(repeating: "help\n", count: 6) + "echo long-output-done\n", in: terminal)
+        // Trimmed lines lose the prompt's trailing space.
+        let bottom = waitForViewport("six help blocks") { text in
+            let lines = Self.outputLines(of: text)
+            return lines.contains("long-output-done") && lines.last?.hasSuffix("%") == true
+        }
+        let bottomText = try XCTUnwrap(bottom)
+
+        terminal.scroll(byDeltaX: 0, deltaY: 300)
+        waitForViewport("viewport scrolled into history") { $0 != bottomText }
+        capture("scrolled-into-history")
+
+        app.typeText("echo after-scroll\n")
+        waitForOutputLine("after-scroll")
+        capture("scrolled-back-on-typing")
+    }
+
+    func testWindowResizeChangesGridAndKeepsTerminalUsable() throws {
+        let terminal = try requireTerminalInteractionTarget()
+        let original = try XCTUnwrap(terminalGridSize(in: terminal))
+        let window = app.windows.firstMatch
+        let originalWidth = window.frame.width
+
+        // Widen first: a restored window can already sit at the minimum width.
+        dragWindowRightEdge(window, by: 200)
+        waitForFrameWidth(of: window) { $0 > originalWidth + 100 }
+        let widened = try XCTUnwrap(terminalGridSize(in: terminal))
+        XCTAssertGreaterThan(widened.columns, original.columns)
+        capture("window-widened")
+
+        dragWindowRightEdge(window, by: -200)
+        waitForFrameWidth(of: window) { $0 < originalWidth + 20 }
+        let restored = try XCTUnwrap(terminalGridSize(in: terminal))
+        XCTAssertLessThan(restored.columns, widened.columns)
+        typeTerminalText("echo after-resize\n", in: terminal)
+        waitForOutputLine("after-resize")
+    }
+
+    func testRelaunchStartsAFreshUsableTerminal() throws {
+        var terminal = try requireTerminalInteractionTarget()
+        typeTerminalText("echo before-relaunch\n", in: terminal)
+        waitForOutputLine("before-relaunch")
+
+        app.terminate()
+        XCTAssertTrue(app.wait(for: .notRunning, timeout: 10))
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+
+        terminal = try requireTerminalInteractionTarget()
+        let fresh = waitForViewport("welcome banner after relaunch") {
+            $0.contains("GhosttyKit Sandbox Demo")
+        }
+        XCTAssertFalse(fresh?.contains("before-relaunch") ?? true)
+        typeTerminalText("echo after-relaunch\n", in: terminal)
+        waitForOutputLine("after-relaunch")
+    }
+
+    // MARK: - Lifecycle helpers
+
+    private struct GridSize: Equatable {
+        var columns: Int
+        var rows: Int
+    }
+
+    private func viewportText() -> String {
+        (app.descendants(matching: .any)["terminal.output"].firstMatch.value as? String) ?? ""
+    }
+
+    private static func outputLines(of viewport: String) -> [String] {
+        viewport.components(separatedBy: "\n").map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }.filter { !$0.isEmpty }
+    }
+
+    /// The viewport holds only the last screenful, so a long run of output
+    /// shows its tail: `visible` must be a non-empty, in-order tail of
+    /// `expected`.
+    private static func isOrderedTail(_ visible: [String], of expected: [String]) -> Bool {
+        !visible.isEmpty && Array(expected.suffix(visible.count)) == visible
+    }
+
+    @discardableResult
+    private func waitForViewport(
+        _ description: String,
+        timeout: TimeInterval = 8,
+        until condition: (String) -> Bool
+    ) -> String? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            let text = viewportText()
+            if condition(text) {
+                return text
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        } while Date() < deadline
+        log("viewport-timeout", "\(description)\n---\n\(viewportText())")
+        XCTFail("Viewport never showed: \(description)")
+        return nil
+    }
+
+    private func waitForOutputLine(_ line: String) {
+        waitForViewport("output line \(line)") {
+            Self.outputLines(of: $0).contains(line)
+        }
+    }
+
+    /// Clears the screen and runs `size`, so the one `columns:` line on
+    /// screen is the grid the shell sees now.
+    private func terminalGridSize(in terminal: XCUIElement) -> GridSize? {
+        typeTerminalText("clear\nsize\n", in: terminal)
+        var grid: GridSize?
+        waitForViewport("size output") { text in
+            grid = Self.parseGridSize(text)
+            return grid != nil
+        }
+        return grid
+    }
+
+    private static func parseGridSize(_ viewport: String) -> GridSize? {
+        for line in outputLines(of: viewport).reversed() where line.hasPrefix("columns: ") {
+            let numbers = line.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+            guard numbers.count >= 2 else { continue }
+            return GridSize(columns: numbers[0], rows: numbers[1])
+        }
+        return nil
+    }
+
+    private func dragWindowRightEdge(_ window: XCUIElement, by dx: CGFloat) {
+        let edge = window.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+            .withOffset(CGVector(dx: -1, dy: 0))
+        edge.press(forDuration: 0.3, thenDragTo: edge.withOffset(CGVector(dx: dx, dy: 0)))
+    }
+
+    private func waitForFrameWidth(of window: XCUIElement, _ condition: (CGFloat) -> Bool) {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if condition(window.frame.width) { return }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTFail("Window width never changed as expected; now \(window.frame.width)")
     }
 
     private func requireTerminalInteractionTarget() throws -> XCUIElement {
@@ -197,5 +381,15 @@ final class GhosttyTerminalAppUITests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+}
+
+private extension XCUIElement {
+    func waitForHittable(timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "isHittable == true"),
+            object: self
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 }

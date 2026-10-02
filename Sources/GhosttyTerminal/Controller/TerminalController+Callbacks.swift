@@ -17,8 +17,16 @@ private enum TerminalCallbacks {
         guard let userdata else { return }
         let controller = Unmanaged<TerminalController>.fromOpaque(userdata)
             .takeUnretainedValue()
-        terminalRunOnMain {
-            controller.handleWakeup()
+        // A wakeup on the main thread comes from inside a tick or a C call
+        // the main thread made; it ticks inline, as it always has.
+        if Thread.isMainThread {
+            MainActor.assumeIsolated { controller.handleWakeup() }
+            return
+        }
+        guard controller.wakeupGate.claim() else { return }
+        DispatchQueue.main.async {
+            controller.wakeupGate.release()
+            MainActor.assumeIsolated { controller.handleWakeup() }
         }
     }
 
@@ -177,6 +185,13 @@ private enum TerminalCallbacks {
             return GHOSTTY_CLIPBOARD_READ_UNSUPPORTED
         }
 
+        guard !wantsListOnly else {
+            let available = TerminalPasteboardContent.hasText() ? ["text/plain"] : []
+            TerminalDebugLog.log(.input, "clipboard paste list available=\(available)")
+            bridge.completeClipboardRead(statePtr: statePtr, contents: [], available: available)
+            return GHOSTTY_CLIPBOARD_READ_STARTED
+        }
+
         // Text and file URLs only, through the shared reader: a file copied
         // in Finder or Files pastes as its escaped path, not its display
         // name. This also serves a program's OSC 52 read, which must not
@@ -187,12 +202,6 @@ private enum TerminalCallbacks {
 
         let hasText = string.map { !$0.isEmpty } ?? false
         let available = listAvailable && hasText ? ["text/plain"] : []
-
-        guard !wantsListOnly else {
-            TerminalDebugLog.log(.input, "clipboard paste list available=\(available)")
-            bridge.completeClipboardRead(statePtr: statePtr, contents: [], available: available)
-            return GHOSTTY_CLIPBOARD_READ_STARTED
-        }
 
         guard let string, hasText else {
             TerminalDebugLog.log(.input, "clipboard paste read empty")

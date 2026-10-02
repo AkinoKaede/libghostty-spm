@@ -58,6 +58,11 @@ final class TerminalSurfaceCoordinator {
     var onMetricsUpdate: (() -> Void)?
     var onCellSizeDidChange: (() -> Void)?
     var onMouseShape: ((ghostty_action_mouse_shape_e) -> Void)?
+    /// Called after every successful (re)build, before the first metrics
+    /// sync. A new surface starts at `configuration`'s font size whatever
+    /// the old one had zoomed to, so view state that tracks the live
+    /// surface (the UIKit pinch counter) resets here.
+    var onSurfaceRebuild: (() -> Void)?
 
     /// Called after every display-link render (`tick`).
     ///
@@ -95,6 +100,11 @@ final class TerminalSurfaceCoordinator {
     /// between SwiftUI updates is not silently reverted by every refresh
     /// re-stamping the declarative default.
     var hostDeclaredDisplayVisible: Bool?
+    /// Whether the platform reports the hosting window as on screen
+    /// (AppKit: not minimized, hidden, or fully covered). Kept apart from
+    /// `isDisplayVisible` so occlusion never overwrites what the host
+    /// declared; the two are ANDed.
+    private var isWindowVisible = true
     private var isApplicationActive = true
     private var pendingImmediateTick = true
 
@@ -229,6 +239,7 @@ final class TerminalSurfaceCoordinator {
             }
         )
         TerminalDebugLog.log(.lifecycle, "surface rebuild succeeded")
+        onSurfaceRebuild?()
         (delegate as? any TerminalSurfaceLifecycleDelegate)?
             .terminalDidAttachSurface(newSurface)
         synchronizeMetrics()
@@ -447,6 +458,19 @@ final class TerminalSurfaceCoordinator {
         }
     }
 
+    func setWindowVisible(_ visible: Bool) {
+        guard isWindowVisible != visible else { return }
+
+        isWindowVisible = visible
+        surface?.setOcclusion(effectiveSurfaceVisible)
+
+        if canRenderFrame {
+            requestImmediateTick()
+        } else {
+            stopDisplayLink()
+        }
+    }
+
     func setApplicationActive(_ active: Bool) {
         guard isApplicationActive != active else {
             // Same state, but not necessarily the same surface: one built
@@ -518,6 +542,8 @@ final class TerminalSurfaceCoordinator {
         var testHooks_throttleArmed: Bool { resizeThrottleArmed }
         var testHooks_throttleTrailing: Bool { resizeThrottleTrailing }
         var testHooks_throttleGeneration: Int { resizeThrottleGeneration }
+        var testHooks_isWindowVisible: Bool { isWindowVisible }
+        var testHooks_canRenderFrame: Bool { canRenderFrame }
     #endif
 
     // MARK: - Cleanup
@@ -541,7 +567,14 @@ final class TerminalSurfaceCoordinator {
     private func tearDownSurface(removingBridgeFrom controller: TerminalController?) {
         TerminalDebugLog.log(.lifecycle, "tear down surface")
         releaseDisplayLink()
-        surfaceSession?.clearSurface(ifMatches: surface?.rawValue)
+        // Held to the end: ghostty's IO thread calls the session as
+        // unretained receive userdata until `surface.free()` joins it, and
+        // after a backend swap deferred by the zero-size guard this may be
+        // the session's last strong reference. `setFocus(false)` below can
+        // still queue a focus report for that thread to write.
+        let session = surfaceSession
+        defer { withExtendedLifetime(session) {} }
+        session?.clearSurface(ifMatches: surface?.rawValue)
         surfaceSession = nil
         controller?.removeWakeupObserver(ObjectIdentifier(self))
         // Must run before rawSurface is cleared: a clipboard-read
@@ -611,7 +644,7 @@ final class TerminalSurfaceCoordinator {
     }
 
     private var effectiveSurfaceVisible: Bool {
-        isDisplayVisible && isApplicationActive
+        isDisplayVisible && isWindowVisible && isApplicationActive
     }
 
     private var canRenderFrame: Bool {

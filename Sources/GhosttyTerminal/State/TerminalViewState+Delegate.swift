@@ -37,27 +37,50 @@ extension TerminalViewState:
     /// file is easier to keep true than a per-callback judgement that has to be
     /// re-made every time one is added.
     ///
-    /// The cost is one runloop turn on state a host only renders. Ordering
-    /// survives — the main queue is FIFO — and `weak self` keeps a detached
-    /// state from being resurrected by a change nobody will see. The
-    /// no-change checks run inside the closure, against the value at apply
-    /// time: two callbacks in one turn both see the same published value,
-    /// so a check made at call time drops the second of X→Y→X and the
+    /// The cost is one runloop turn on state a host only renders. Changes
+    /// collect in `pendingPublishes` and one block applies them all, newest
+    /// per `key` (``TerminalPendingPublishes`` has the flood that made that
+    /// necessary); different keys apply in the order they first arrived, and
+    /// `weak self` keeps a detached state from being resurrected by a change
+    /// nobody will see. The no-change checks run inside the closure, against
+    /// the value at apply time: a check made at call time sees the value
+    /// published before the turn, so it drops the second of X→Y→X and the
     /// state ends at Y.
     ///
     /// The closures further down are deliberately *not* routed through this.
     /// They are requests with an answer expected, not state: a clipboard
     /// confirmation must reach its host while the request is still live, and a
     /// close must act before the surface goes.
-    private func publishSoon(_ apply: @escaping @MainActor (TerminalViewState) -> Void) {
+    private func publishSoon(
+        _ key: TerminalPendingPublishes.Key,
+        _ apply: @escaping TerminalPendingPublishes.Apply
+    ) {
+        pendingPublishes.set(key, apply)
+        guard !pendingPublishes.isFlushScheduled else { return }
+        pendingPublishes.isFlushScheduled = true
         terminalRunOnMainNextTurn { [weak self] in
-            guard let self else { return }
+            self?.flushPendingPublishes()
+        }
+    }
+
+    /// Takes the batch before applying it: a change that an applied one
+    /// provokes schedules the next turn's flush instead of joining this one.
+    private func flushPendingPublishes() {
+        pendingPublishes.isFlushScheduled = false
+        for apply in pendingPublishes.take() {
             apply(self)
         }
     }
 
+    /// The platform view's appearance callbacks — window attach, trait and
+    /// effective-appearance changes — run inside SwiftUI's update pass like
+    /// layout does, and adopting a scheme publishes.
+    func adoptSoon(terminalColorScheme colorScheme: TerminalColorScheme) {
+        publishSoon(.colorScheme) { $0.adopt(terminalColorScheme: colorScheme) }
+    }
+
     public func terminalDidChangeTitle(_ title: String) {
-        publishSoon {
+        publishSoon(.title) {
             guard $0.title != title else { return }
             $0.title = title
         }
@@ -69,14 +92,14 @@ extension TerminalViewState:
     /// reached the engine before this was called (`synchronizeMetrics` says so
     /// at length), so this notification only ever fed the host's own UI.
     public func terminalDidResize(_ size: TerminalGridMetrics) {
-        publishSoon {
+        publishSoon(.surfaceSize) {
             guard $0.surfaceSize != size else { return }
             $0.surfaceSize = size
         }
     }
 
     public func terminalDidChangeFocus(_ focused: Bool) {
-        publishSoon {
+        publishSoon(.focus) {
             guard $0.isFocused != focused else { return }
             $0.isFocused = focused
         }
@@ -89,15 +112,16 @@ extension TerminalViewState:
     public func terminalDidRingBell() {
         // The instant the bell rang, not the instant it was published.
         let at = Date()
-        publishSoon {
-            $0.bellCount += 1
+        pendingPublishes.bellRings += 1
+        publishSoon(.bell) {
+            $0.bellCount += $0.pendingPublishes.takeBellRings()
             $0.lastBellAt = at
         }
     }
 
     public func terminalDidRequestDesktopNotification(title: String, body: String) {
         let at = Date()
-        publishSoon {
+        publishSoon(.desktopNotification) {
             $0.lastDesktopNotificationTitle = title
             $0.lastDesktopNotificationBody = body
             $0.lastDesktopNotificationAt = at
@@ -105,14 +129,14 @@ extension TerminalViewState:
     }
 
     public func terminalDidChangeWorkingDirectory(_ path: String) {
-        publishSoon {
+        publishSoon(.workingDirectory) {
             guard $0.workingDirectory != path else { return }
             $0.workingDirectory = path
         }
     }
 
     public func terminalDidUpdateScrollbar(_ scrollbar: TerminalScrollbar) {
-        publishSoon {
+        publishSoon(.scrollbar) {
             guard $0.scrollbar != scrollbar else { return }
             $0.scrollbar = scrollbar
         }
@@ -120,7 +144,7 @@ extension TerminalViewState:
 
     public func terminalDidChangeColor(_ change: TerminalColorChange) {
         guard change.kind == .background else { return }
-        publishSoon {
+        publishSoon(.background) {
             // A reset (OSC 111) reports the config color with no marker of its own.
             $0.programBackgroundColor = change.color == $0.controller.backgroundColor ? nil : change.color
             $0.publishBackgroundColor()
@@ -128,7 +152,7 @@ extension TerminalViewState:
     }
 
     public func terminalDidFinishCommand(exitCode: Int?, durationNanos: UInt64) {
-        publishSoon {
+        publishSoon(.commandFinished) {
             $0.lastCommandExitCode = exitCode
             $0.lastCommandDurationNanos = durationNanos
         }
@@ -161,7 +185,7 @@ extension TerminalViewState:
         // surface the incoming view attached. A freed surface reads nil.
         guard surface?.rawValue == nil else { return }
         surface = nil
-        publishSoon {
+        publishSoon(.background) {
             $0.programBackgroundColor = nil
             $0.publishBackgroundColor()
         }

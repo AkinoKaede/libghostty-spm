@@ -55,6 +55,7 @@ public final class TerminalViewState: ObservableObject {
     /// surface view is made: set it before the surface first appears.
     public var makePlatformView: (@MainActor () -> TerminalView)?
     private var pendingFocusRequest = false
+    var pendingPublishes = TerminalPendingPublishes()
 
     /// Whether the attached surface should keep drawing. Hosts that keep
     /// several surfaces mounted at once (tabs hidden behind `opacity(0)`)

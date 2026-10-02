@@ -14,6 +14,10 @@
     }
 
     extension AppTerminalView {
+        /// Added once from `commonInit`. `.inVisibleRect` keeps it matched to
+        /// the visible rect, so `updateTrackingAreas` never has to rebuild it
+        /// — and must not sweep `trackingAreas`, which also holds areas a
+        /// host or subclass added.
         func setupTrackingArea() {
             let options: NSTrackingArea.Options = [
                 .mouseEnteredAndExited,
@@ -28,12 +32,6 @@
                 userInfo: nil
             )
             addTrackingArea(area)
-        }
-
-        override open func updateTrackingAreas() {
-            super.updateTrackingAreas()
-            trackingAreas.forEach { removeTrackingArea($0) }
-            setupTrackingArea()
         }
 
         override open var acceptsFirstResponder: Bool {
@@ -57,6 +55,9 @@
         override open func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             removeWindowObservers()
+            // A new window (or none) starts visible; its next occlusion
+            // change says otherwise.
+            core.setWindowVisible(true)
             if window != nil {
                 // SwiftUI/AppKit can temporarily detach and reattach the terminal view while
                 // diffing the view hierarchy. Rebuilding on every reattach discards Ghostty's
@@ -95,6 +96,15 @@
                     self,
                     selector: #selector(windowDidChangeScreen),
                     name: NSWindow.didChangeScreenNotification,
+                    object: window
+                )
+                // Minimizing, hiding the app (Cmd+H), and full cover all
+                // arrive as occlusion changes. Without this a hidden window
+                // with streaming output keeps drawing at display rate.
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(windowDidChangeOcclusionState),
+                    name: NSWindow.didChangeOcclusionStateNotification,
                     object: window
                 )
                 // Same runloop hop as `requestFocus`: attaching can happen
@@ -136,6 +146,11 @@
             }
         }
 
+        @objc func windowDidChangeOcclusionState(_: Notification) {
+            guard let window else { return }
+            core.setWindowVisible(window.occlusionState.contains(.visible))
+        }
+
         private func removeWindowObservers() {
             // Remove any existing key-window observers before registering for the
             // current window. AppKit can move the view directly between windows
@@ -153,6 +168,11 @@
             NotificationCenter.default.removeObserver(
                 self,
                 name: NSWindow.didChangeScreenNotification,
+                object: nil
+            )
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSWindow.didChangeOcclusionStateNotification,
                 object: nil
             )
         }
@@ -233,7 +253,7 @@
                let viewState = delegate as? TerminalViewState,
                viewState.controller === controller
             {
-                viewState.adopt(terminalColorScheme: scheme)
+                viewState.adoptSoon(terminalColorScheme: scheme)
             } else {
                 controller?.setColorScheme(scheme)
             }

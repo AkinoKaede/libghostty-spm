@@ -81,6 +81,15 @@ public enum TerminalPasteboardContent {
             return text(string: pasteboard.hasStrings ? pasteboard.string : nil, urls: urls)
         }
 
+        /// Whether ``text(from:)`` would find anything, asked through the
+        /// pasteboard's detection API, which reads no contents (and so
+        /// raises no paste prompt).
+        static func hasText(in pasteboard: UIPasteboard = .general) -> Bool {
+            pasteboard.hasStrings
+                || pasteboard.hasURLs
+                || pasteboard.contains(pasteboardTypes: [UTType.fileURL.identifier])
+        }
+
         /// Every item's `public.file-url`, whatever form the pasteboard
         /// stored it in.
         static func fileURLs(in pasteboard: UIPasteboard) -> [URL] {
@@ -138,6 +147,12 @@ public enum TerminalPasteboardContent {
                 string: pasteboard.string(forType: .string),
                 urls: (pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL]) ?? []
             )
+        }
+
+        /// Whether ``text(from:)`` would find anything, without reading it.
+        static func hasText(in pasteboard: NSPasteboard = .general) -> Bool {
+            pasteboard.availableType(from: [.string]) != nil
+                || pasteboard.canReadObject(forClasses: [NSURL.self])
         }
     #endif
 }

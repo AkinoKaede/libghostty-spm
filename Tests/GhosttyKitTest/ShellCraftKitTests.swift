@@ -642,12 +642,12 @@ struct ShellCraftKitTests {
     }
 }
 
-private struct EngineHarness {
+struct EngineHarness {
     let engine: Engine
     private let session: InMemoryTerminalSession
     private let output: CapturedOutput
 
-    init(columns: UInt16 = 80) async {
+    init(columns: UInt16 = 80, rows: UInt16 = 24, prompt: String = "$ ") async {
         let output = CapturedOutput()
         let session = InMemoryTerminalSession(
             write: { _ in },
@@ -656,11 +656,11 @@ private struct EngineHarness {
             processExit: { _, _, _ in }
         )
         session.setSurface(UnsafeMutableRawPointer(bitPattern: 0x10)!)
-        let shell = ShellDefinition(prompt: "$ ", welcomeMessage: "") {
+        let shell = ShellDefinition(prompt: prompt, welcomeMessage: "") {
             ShellCommand("whoami", summary: "Show current user") { _ in .output("tester\r\n") }
         }
         let engine = Engine(shell: shell, session: session)
-        await engine.updateSize(InMemoryTerminalViewport(columns: columns, rows: 24))
+        await engine.updateSize(InMemoryTerminalViewport(columns: columns, rows: rows))
 
         self.engine = engine
         self.session = session
@@ -690,7 +690,7 @@ private struct EngineHarness {
     }
 }
 
-private final class CapturedOutput: @unchecked Sendable {
+final class CapturedOutput: @unchecked Sendable {
     private let lock = NSLock()
     private var data = Data()
 

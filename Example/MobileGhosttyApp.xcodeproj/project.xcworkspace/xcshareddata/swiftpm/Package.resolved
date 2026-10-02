@@ -1,6 +1,15 @@
 {
-  "originHash" : "4f602f9ca6276d19f42dbe1ee430489c453afc69258d9da84e0f8a06eaf8d0c4",
+  "originHash" : "eaaaf38db53a606bb70dbe85a263ae10220e53ae4a447847f10bb5383fd5d229",
   "pins" : [
+    {
+      "identity" : "displaylink",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Lakr233/DisplayLink.git",
+      "state" : {
+        "revision" : "41bea2661e04bebcb1c4f15fc0b6197850100fdd",
+        "version" : "3.0.1"
+      }
+    },
     {
       "identity" : "lookinside-release",
       "kind" : "remoteSourceControl",
@@ -8,15 +17,6 @@
       "state" : {
         "revision" : "7514cfa8bd24a78f74d8b982c429e7d61ef58134",
         "version" : "0.2.2"
-      }
-    },
-    {
-      "identity" : "msdisplaylink",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Lakr233/MSDisplayLink.git",
-      "state" : {
-        "revision" : "87eb0af130744c8cbe2e31b6e1a5bcd659f1c220",
-        "version" : "2.2.0"
       }
     }
   ],

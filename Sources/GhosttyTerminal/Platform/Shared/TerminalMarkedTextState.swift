@@ -48,7 +48,16 @@ struct TerminalMarkedTextState {
             mutableText.deleteCharacters(in: selectedRange)
             selectedRange = NSRange(location: selectedRange.location, length: 0)
         } else if selectedRange.location > 0 {
-            let deletionRange = NSRange(location: selectedRange.location - 1, length: 1)
+            // One scalar, not one UTF-16 unit: half an astral character
+            // left in the preedit would render as a replacement glyph.
+            var start = selectedRange.location - 1
+            if start > 0,
+               UTF16.isTrailSurrogate(mutableText.character(at: start)),
+               UTF16.isLeadSurrogate(mutableText.character(at: start - 1))
+            {
+                start -= 1
+            }
+            let deletionRange = NSRange(location: start, length: selectedRange.location - start)
             mutableText.deleteCharacters(in: deletionRange)
             selectedRange = NSRange(location: deletionRange.location, length: 0)
         } else {

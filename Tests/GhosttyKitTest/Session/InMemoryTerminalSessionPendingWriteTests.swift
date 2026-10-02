@@ -76,6 +76,51 @@ struct InMemoryTerminalSessionPendingWriteTests {
         #expect(events.values == ["first", "logout\r\n", "exit:0:5"])
     }
 
+    /// Detached or attached, the next surface sees the host's calls in the
+    /// order they were made, and every exit among them.
+    @Test
+    func `output and exits received while detached keep their order`() {
+        let events = LockedValues<String>()
+        let session = InMemoryTerminalSession(
+            write: { _ in },
+            resize: { _ in },
+            surfaceWrite: { _, data in
+                events.append(String(decoding: data, as: UTF8.self))
+            },
+            processExit: { _, exitCode, _ in
+                events.append("exit:\(exitCode)")
+            }
+        )
+
+        session.receive("a")
+        session.finish(exitCode: 0, runtimeMilliseconds: 0)
+        session.receive("b")
+        session.finish(exitCode: 1, runtimeMilliseconds: 0)
+        session.setSurface(testSurface(0x70))
+        session.waitForPendingOutput()
+
+        #expect(events.values == ["a", "exit:0", "b", "exit:1"])
+    }
+
+    /// Bytes waiting for a surface are not parsed, so a host that waits on
+    /// them to mark a replay done must learn the wait did not cover them.
+    @Test
+    func `waiting for output reports bytes that still wait for a surface`() {
+        let writes = LockedValues<String>()
+        let session = makeSession { _, data in
+            writes.append(String(decoding: data, as: UTF8.self))
+        }
+
+        #expect(session.waitForPendingOutput())
+        session.receive("\u{1b}[c")
+        #expect(session.waitForPendingOutput() == false)
+        #expect(writes.values.isEmpty)
+
+        session.setSurface(testSurface(0x80))
+        #expect(session.waitForPendingOutput())
+        #expect(writes.values == ["\u{1b}[c"])
+    }
+
     @Test
     func `pending bytes are bounded and keep the newest tail`() {
         let writes = LockedValues<Data>()

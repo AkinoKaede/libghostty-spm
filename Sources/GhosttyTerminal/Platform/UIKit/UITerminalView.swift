@@ -93,17 +93,7 @@
 
         open var configuration: TerminalSurfaceOptions {
             get { core.configuration }
-            set {
-                #if !targetEnvironment(macCatalyst)
-                    // SwiftUI stamps the options on every update; only a
-                    // changed fontSize rebuilds the surface at a new size,
-                    // so only then does the pinch counter follow it.
-                    if newValue.fontSize != core.configuration.fontSize {
-                        fontZoom.currentFontSize = newValue.fontSize ?? 14
-                    }
-                #endif
-                core.configuration = newValue
-            }
+            set { core.configuration = newValue }
         }
 
         /// Whether this surface should keep drawing — the UIKit twin of the
@@ -113,6 +103,9 @@
         /// and session — only rendering stops and the display link is
         /// released.
         open func setSurfaceVisible(_ visible: Bool) {
+            if !visible {
+                stopMomentumScrolling(sendTerminalEndEvent: false)
+            }
             core.setDisplayVisible(visible)
         }
 
@@ -174,6 +167,15 @@
             core.onPostRender = { [weak self] in
                 self?.enforceSublayerScale()
             }
+            #if !targetEnvironment(macCatalyst)
+                // Every rebuild — a fontSize change, a controller swap, any
+                // non-equivalent options — starts the surface at the
+                // configured size, so the pinch counter restarts with it.
+                core.onSurfaceRebuild = { [weak self] in
+                    guard let self else { return }
+                    fontZoom.currentFontSize = core.configuration.fontSize ?? 14
+                }
+            #endif
 
             setupApplicationLifecycleObservers()
             syncApplicationActiveState()

@@ -27,20 +27,34 @@ public struct TerminalSurfaceView: View {
     }
 
     public var body: some View {
-        TerminalViewRepresentable(
+        representable
+            .background(.clear)
+            .onChange(of: colorScheme) { newScheme in
+                context.adopt(colorScheme: newScheme)
+            }
+            .onAppear {
+                context.adopt(colorScheme: colorScheme)
+            }
+    }
+
+    /// Every value the platform view needs is copied in here: SwiftUI runs
+    /// the update pass only when the representable's own properties change,
+    /// and a value read through `context` there is invisible to it.
+    private var representable: TerminalViewRepresentable {
+        var representable = TerminalViewRepresentable(
             context: context,
             controller: context.controller,
             configuration: context.configuration,
             isSurfaceVisible: context.isSurfaceVisible,
             focusBinding: focusBinding
         )
-        .background(.clear)
-        .onChange(of: colorScheme) { newScheme in
-            context.adopt(colorScheme: newScheme)
-        }
-        .onAppear {
-            context.adopt(colorScheme: colorScheme)
-        }
+        #if canImport(UIKit)
+            #if !targetEnvironment(macCatalyst)
+                representable.inputAccessoryItems = context.inputAccessoryItems
+                    ?? TerminalInputAccessoryItem.defaultItems
+            #endif
+        #endif
+        return representable
     }
 
     public func terminalFocused(

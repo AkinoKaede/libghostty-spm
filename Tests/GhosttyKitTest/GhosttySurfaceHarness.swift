@@ -98,6 +98,15 @@ final class GhosttySurfaceHarness {
         Issue.record("device attributes reply never arrived")
         return outbound.bytes
     }
+
+    /// The outbound bytes since the last take, then a clean slate: `drain`
+    /// alone stops at the first device-attributes reply in the buffer, so a
+    /// second drain without clearing would return the first one's bytes.
+    func takeOutbound() async -> Data {
+        let bytes = await drain()
+        receive("")
+        return bytes
+    }
 }
 
 final class LockedBytes: @unchecked Sendable {

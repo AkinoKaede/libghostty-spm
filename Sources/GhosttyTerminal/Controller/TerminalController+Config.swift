@@ -72,13 +72,11 @@ extension TerminalController {
         let previousManagedConfigURL = managedConfigURL
         let nextConfig = prepared.rawValue
 
+        // Core's App.updateConfig hands the config to every surface the app
+        // owns, so a per-surface ghostty_surface_update_config here would
+        // apply it to each one a second time.
         if let app {
             ghostty_app_update_config(app, nextConfig)
-        }
-
-        for bridge in retainedBridges {
-            guard let surface = bridge.rawSurface else { continue }
-            ghostty_surface_update_config(surface, nextConfig)
         }
 
         applyPreparedConfig(prepared, source: source)
