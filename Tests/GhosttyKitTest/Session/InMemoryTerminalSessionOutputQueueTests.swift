@@ -24,7 +24,7 @@ struct InMemoryTerminalSessionOutputQueueTests {
         let elapsed = ProcessInfo.processInfo.systemUptime - start
 
         #expect(elapsed < 0.2)
-        #expect(writeStarted.wait(timeout: .now() + 1) == .success)
+        #expect(writeStarted.wait(timeout: .now() + 10) == .success)
         allowWriteToFinish.signal()
         session.waitForPendingOutput()
     }
@@ -81,23 +81,26 @@ struct InMemoryTerminalSessionOutputQueueTests {
         session.receive("first")
         session.receive("second")
         session.finish(exitCode: 3, runtimeMilliseconds: 0)
-        #expect(firstWriteStarted.wait(timeout: .now() + 1) == .success)
+        #expect(firstWriteStarted.wait(timeout: .now() + 10) == .success)
 
-        DispatchQueue.global().async {
+        // A thread of its own, not the global queue: the parallel stress
+        // suites can hold every global worker past a short deadline on a
+        // small CI runner.
+        Thread.detachNewThread {
             session.clearSurface(ifMatches: surface.rawValue)
             clearFinished.signal()
         }
 
-        let clearDeadline = ProcessInfo.processInfo.systemUptime + 1
+        let clearDeadline = ProcessInfo.processInfo.systemUptime + 10
         while session.currentSurface != nil,
               ProcessInfo.processInfo.systemUptime < clearDeadline
         {
-            sched_yield()
+            usleep(1000)
         }
         #expect(session.currentSurface == nil)
 
         allowFirstWriteToFinish.signal()
-        #expect(clearFinished.wait(timeout: .now() + 1) == .success)
+        #expect(clearFinished.wait(timeout: .now() + 10) == .success)
         session.receive("third")
         session.setSurface(testSurface(8))
         session.waitForPendingOutput()
@@ -121,10 +124,10 @@ struct InMemoryTerminalSessionOutputQueueTests {
         secondSession.setSurface(testSurface(5))
 
         firstSession.receive("blocked")
-        #expect(firstWriteStarted.wait(timeout: .now() + 1) == .success)
+        #expect(firstWriteStarted.wait(timeout: .now() + 10) == .success)
         secondSession.receive("independent")
 
-        #expect(secondWriteFinished.wait(timeout: .now() + 1) == .success)
+        #expect(secondWriteFinished.wait(timeout: .now() + 10) == .success)
         allowFirstWriteToFinish.signal()
         firstSession.waitForPendingOutput()
         secondSession.waitForPendingOutput()

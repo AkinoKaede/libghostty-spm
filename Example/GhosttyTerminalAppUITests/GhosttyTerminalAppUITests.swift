@@ -57,10 +57,21 @@ final class GhosttyTerminalAppUITests: XCTestCase {
         capture("12-clear-command")
 
         assertNoCopyMenuWithoutSelection(in: terminal)
-        typeTerminalText("echo selection anchor\n", in: terminal)
-        dragPointerSelection(in: terminal)
+        let anchor = "selection anchor"
+        typeTerminalText("echo \(anchor)\n", in: terminal)
+        waitForOutputLine(anchor)
+        // After `clear` the command echo is row 0 and its output row 1.
+        let grid = try XCTUnwrap(cellGeometry(), "terminal.grid reported no cell size")
+        dragPointerSelection(
+            from: grid.point(column: 0, row: 1, in: terminal, fraction: 0.25),
+            to: grid.point(column: anchor.count - 1, row: 1, in: terminal, fraction: 0.75)
+        )
         capture("13-pointer-selection")
-        openCopyMenuAndCopySelection(in: terminal, screenshotName: "14-pointer-copy-menu")
+        openCopyMenuAndCopySelection(
+            at: grid.point(column: anchor.count / 2, row: 1, in: terminal),
+            expected: anchor,
+            screenshotName: "14-pointer-copy-menu"
+        )
         longPressTerminal(in: terminal)
         capture("15-long-press")
     }
@@ -301,18 +312,55 @@ final class GhosttyTerminalAppUITests: XCTestCase {
         element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55)).press(forDuration: 0.7)
     }
 
-    private func dragPointerSelection(in element: XCUIElement) {
-        log("pointer-selection-coordinates", "start=(0.008, 0.10), end=(0.42, 0.10), rightClick=(0.20, 0.10)")
-        let start = element.coordinate(withNormalizedOffset: CGVector(dx: 0.008, dy: 0.10))
-        let end = element.coordinate(withNormalizedOffset: CGVector(dx: 0.42, dy: 0.10))
+    /// Cell size and padding in points, from the app's `terminal.grid`
+    /// element (DEBUG, `--ui-testing`).
+    private struct CellGeometry {
+        var cell: CGSize
+        var padding: CGFloat
+
+        /// A point inside a cell: `fraction` across it, vertically centred.
+        func point(
+            column: Int,
+            row: Int,
+            in element: XCUIElement,
+            fraction: CGFloat = 0.5
+        ) -> XCUICoordinate {
+            element.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(
+                dx: padding + (CGFloat(column) + fraction) * cell.width,
+                dy: padding + (CGFloat(row) + 0.5) * cell.height
+            ))
+        }
+    }
+
+    private func cellGeometry() -> CellGeometry? {
+        let element = app.staticTexts["terminal.grid"]
+        guard element.waitForExistence(timeout: 5) else { return nil }
+        let value = element.value as? String ?? ""
+        let numbers = value.split(whereSeparator: { !$0.isNumber && $0 != "." }).compactMap { Double($0) }
+        guard numbers.count == 3, numbers[0] > 0, numbers[1] > 0 else { return nil }
+        log("cell-geometry", value)
+        return CellGeometry(
+            cell: CGSize(width: numbers[0], height: numbers[1]),
+            padding: numbers[2]
+        )
+    }
+
+    /// Starts a quarter into the first cell and ends three quarters into the
+    /// last, so both ends fall on the selected side of their cell's midpoint.
+    private func dragPointerSelection(from start: XCUICoordinate, to end: XCUICoordinate) {
+        log("pointer-selection-coordinates", "start=\(start.screenPoint) end=\(end.screenPoint)")
         start.press(forDuration: 0.1, thenDragTo: end)
     }
 
-    private func openCopyMenuAndCopySelection(in element: XCUIElement, screenshotName: String) {
+    private func openCopyMenuAndCopySelection(
+        at point: XCUICoordinate,
+        expected: String,
+        screenshotName: String
+    ) {
         NSPasteboard.general.clearContents()
         disableSystemAlertMonitorBeforeContextMenu()
         defer { reinstallSystemAlertMonitorAfterContextMenu() }
-        element.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.10)).rightClick()
+        point.rightClick()
         let copy = copyMenuItem()
         if !copy.waitForExistence(timeout: 3) {
             capture("\(screenshotName)-missing")
@@ -323,7 +371,7 @@ final class GhosttyTerminalAppUITests: XCTestCase {
         capture(screenshotName)
         let actual = copiedPasteboardText(timeout: 2)
         log("pointer-selection-pasteboard", actual ?? "<nil>")
-        XCTAssertEqual(actual, "selection anchor")
+        XCTAssertEqual(actual, expected)
     }
 
     private func assertNoCopyMenuWithoutSelection(in element: XCUIElement) {

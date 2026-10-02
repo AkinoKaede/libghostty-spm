@@ -19,7 +19,21 @@ final class ViewController: NSViewController {
     private lazy var controller: TerminalController = .init { builder in
         builder.withBackgroundOpacity(0)
         builder.withCustom("keybind", "super+k=text:\\x0c")
+        #if DEBUG
+            if Self.isUITesting {
+                // Ghostty's defaults, spelled out: UI tests place the pointer
+                // on a cell from these and the reported cell size.
+                builder.withWindowPaddingX(TerminalGridAccessibilityView.padding)
+                builder.withWindowPaddingY(TerminalGridAccessibilityView.padding)
+                builder.withCustom("window-padding-balance", "false")
+            }
+        #endif
     }
+
+    #if DEBUG
+        private static let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
+        private var gridAccessibility: TerminalGridAccessibilityView?
+    #endif
 
     override func loadView() {
         let container = AppearanceAwareView()
@@ -77,18 +91,22 @@ final class ViewController: NSViewController {
         ])
 
         #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+            if Self.isUITesting {
                 let output = TerminalOutputAccessibilityView(
                     session: shellSession.terminalSession
                 )
-                output.translatesAutoresizingMaskIntoConstraints = false
-                view.addSubview(output)
-                NSLayoutConstraint.activate([
-                    output.topAnchor.constraint(equalTo: view.topAnchor),
-                    output.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                    output.widthAnchor.constraint(equalToConstant: 1),
-                    output.heightAnchor.constraint(equalToConstant: 1),
-                ])
+                let grid = TerminalGridAccessibilityView()
+                gridAccessibility = grid
+                for probe in [output, grid] as [NSView] {
+                    probe.translatesAutoresizingMaskIntoConstraints = false
+                    view.addSubview(probe)
+                    NSLayoutConstraint.activate([
+                        probe.topAnchor.constraint(equalTo: view.topAnchor),
+                        probe.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                        probe.widthAnchor.constraint(equalToConstant: 1),
+                        probe.heightAnchor.constraint(equalToConstant: 1),
+                    ])
+                }
             }
         #endif
     }
@@ -127,14 +145,56 @@ final class ViewController: NSViewController {
             session.readViewportText()
         }
     }
+
+    /// UI tests read the cell size and padding, in points, through this
+    /// element's value (`cell=W,H padding=P`) to aim the pointer at a cell
+    /// instead of at a fraction of the view, whose row moves with the
+    /// window's height.
+    private final class TerminalGridAccessibilityView: NSView {
+        static let padding = 2
+        var cellSize: CGSize?
+
+        init() {
+            super.init(frame: .zero)
+            setAccessibilityElement(true)
+            setAccessibilityRole(.staticText)
+            setAccessibilityIdentifier("terminal.grid")
+            setAccessibilityLabel("Terminal Grid")
+        }
+
+        @available(*, unavailable)
+        required init?(coder _: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func hitTest(_: NSPoint) -> NSView? {
+            nil
+        }
+
+        override func accessibilityValue() -> Any? {
+            guard let cellSize else { return "" }
+            return "cell=\(cellSize.width),\(cellSize.height) padding=\(Self.padding)"
+        }
+    }
 #endif
 
 // MARK: - Terminal Callbacks
 
 extension ViewController:
     TerminalSurfaceTitleDelegate,
-    TerminalSurfaceCloseDelegate
+    TerminalSurfaceCloseDelegate,
+    TerminalSurfaceGridResizeDelegate
 {
+    func terminalDidResize(_ size: TerminalGridMetrics) {
+        #if DEBUG
+            let scale = view.window?.backingScaleFactor ?? 1
+            gridAccessibility?.cellSize = CGSize(
+                width: CGFloat(size.cellWidthPixels) / scale,
+                height: CGFloat(size.cellHeightPixels) / scale
+            )
+        #endif
+    }
+
     func terminalDidChangeTitle(_ title: String) {
         view.window?.title = title
     }
