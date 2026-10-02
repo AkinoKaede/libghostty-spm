@@ -207,11 +207,13 @@ public final class TerminalController {
         }
 
         let resolved = resolveEffectiveConfig(colorScheme: scheme)
-        guard applyResolvedConfig(
-            resolved,
-            willChange: willChange,
-            applyState: { effectiveColorScheme = scheme }
-        ) else {
+        guard
+            applyResolvedConfig(
+                resolved,
+                willChange: willChange,
+                applyState: { effectiveColorScheme = scheme }
+            )
+        else {
             return false
         }
 
@@ -268,6 +270,28 @@ public final class TerminalController {
         )
     }
 
+    public private(set) var keywordHighlightRules: [TerminalKeywordHighlightRule] = []
+    private var hasKeywordHighlightOverride = false
+
+    @discardableResult
+    public func setKeywordHighlightRules(_ rules: [TerminalKeywordHighlightRule]) -> Bool {
+        setKeywordHighlightRules(rules, willChange: nil)
+    }
+
+    @discardableResult
+    func setKeywordHighlightRules(_ rules: [TerminalKeywordHighlightRule], willChange: (() -> Void)?) -> Bool {
+        guard rules.count <= 64 else { return false }
+        guard rules.allSatisfy({ $0.validationIssue() == nil }) else { return false }
+        guard !hasKeywordHighlightOverride || rules != keywordHighlightRules else { return true }
+        return applyResolvedConfig(
+            resolveEffectiveConfig(keywordHighlightRules: rules), willChange: willChange,
+            applyState: {
+                self.keywordHighlightRules = rules
+                self.hasKeywordHighlightOverride = true
+            }
+        )
+    }
+
     // MARK: - Config Resolution
 
     @discardableResult
@@ -288,21 +312,29 @@ public final class TerminalController {
     private func resolveEffectiveConfig(
         theme: TerminalTheme? = nil,
         terminalConfiguration: TerminalConfiguration? = nil,
-        colorScheme: TerminalColorScheme? = nil
+        colorScheme: TerminalColorScheme? = nil,
+        keywordHighlightRules: [TerminalKeywordHighlightRule]? = nil
     ) -> (source: ConfigSource, contents: String) {
         let nextTheme = theme ?? self.theme
         let nextTerminalConfiguration = terminalConfiguration ?? self.terminalConfiguration
         let nextColorScheme = colorScheme ?? effectiveColorScheme
+        let nextHighlightRules = keywordHighlightRules ?? self.keywordHighlightRules
+        let managesHighlighting = keywordHighlightRules != nil || hasKeywordHighlightOverride
         let themeConfig = nextTheme.configuration(for: nextColorScheme)
-        if nextTerminalConfiguration.isEmpty, themeConfig.isEmpty {
+        if nextTerminalConfiguration.isEmpty, themeConfig.isEmpty, !managesHighlighting {
             return (baseConfigSource, baseConfigTemplate)
         }
 
-        let contents = GhosttyConfigRenderer.render(
+        var contents = GhosttyConfigRenderer.render(
             baseContents: baseConfigTemplate,
             configuration: nextTerminalConfiguration,
             theme: themeConfig
         )
+        // These belong to the host setter, after every theme/custom overlay.
+        if managesHighlighting {
+            contents += "keyword-highlight = \n"
+            for rule in nextHighlightRules { contents += "keyword-highlight = \(rule.configurationValue)\n" }
+        }
         return (.generated(contents), contents)
     }
 
@@ -325,7 +357,7 @@ public final class TerminalController {
         for observer in observers { observer.onWakeup() }
     }
 
-    private static func initializeRuntimeIfNeeded() {
+    static func initializeRuntimeIfNeeded() {
         guard !runtimeInitialized else { return }
         runtimeInitialized = true
         GhosttyRuntimeResources.configureEnvironment()

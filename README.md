@@ -313,3 +313,29 @@ The bundled `libghostty` binary is built from [Ghostty](https://ghostty.org), MI
 
 - [LookInside](https://lookinside-app.com/) helps you inspect a running iOS or macOS app UI from your Mac.
 - This project is sponsored by AFK AI, INC.
+
+### Keyword foreground and background highlighting
+
+Call `TerminalViewState.setKeywordHighlightRules(_:)` (or the controller equivalent)
+with ordered `TerminalKeywordHighlightRule` values. The first matching rule wins
+an overlap. Use `.text` for literal text, or `.regularExpression` for Oniguruma
+expressions; `isCaseSensitive` defaults to `false`. `foregroundRGB` and `backgroundRGB` are optional packed sRGB
+`0xRRGGBB` values. Nil keeps the original channel; both nil preserve both colors. `validationIssue()` uses the renderer's regex compiler. A failed setter
+returns `false` and preserves the previous rules; an empty array clears them.
+
+```swift
+state.setKeywordHighlightRules([
+    .init(pattern: #"\bWarn(?:ing)?\b"#, mode: .regularExpression,
+          isCaseSensitive: false, foregroundRGB: 0xE5C07B)
+])
+```
+
+Rules update existing and future surfaces and survive theme/configuration changes.
+They override selected foreground/background channels, including ANSI colors, and retain
+selection/search/cursor priority. Terminal contents, copy, search, and outgoing
+input are unchanged. Matching joins soft-wrapped viewport rows and handles UTF-8
+and grapheme cells; context beyond the viewport is not searched. Regex input,
+backtracking and match counts are bounded. At most 64 rules are accepted, each
+with at most 16,384 bytes of compiled pattern. The native repeatable config key is
+`keyword-highlight = foreground,background:regex` (six hex digits or `-` for each channel); an empty value resets it. This API requires the
+XCFramework built with `0019-keyword-highlighting.sh`.

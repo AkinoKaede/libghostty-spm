@@ -235,6 +235,11 @@ to move back.
 - `0018-screen-text-history.sh` — preserve the full scrollback row range for
   screen-relative text reads; viewport-relative reads retain grid bounds.
 
+- `0019-keyword-highlighting.sh` — ordered foreground/background regex rules, native
+  Oniguruma validation, bounded matching and viewport cell mapping. Colors are
+  render-only and yield to selection/search. Includes native regression tests
+  for soft wraps, Unicode, word boundaries and pathological expressions.
+
 Dropped once upstream carried them: `0014-free-text-signature.patch`
 (`ghostty_surface_free_text` taking the surface, upstream `4803d58b`). A
 patch that only "already applies" is a liability — the day its context
