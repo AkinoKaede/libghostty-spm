@@ -115,18 +115,20 @@
         }
 
         /// Builds the menu when no text is selected, on iOS 16 and later.
-        /// Override to localize the default actions or append host elements.
+        /// Override to localize, group or reorder the default actions and system menus.
         /// Action identifiers are terminal.paste, terminal.select and terminal.selectAll.
-        /// The host owns grouping and separators; UIKit supplies AutoFill separately.
+        /// The returned elements include UIKit's AutoFill menu when available.
+        /// The host owns the complete menu, including grouping and separators.
         open func touchMenuItems(for context: TerminalTouchMenuContext) -> [UIMenuElement] {
-            defaultTouchMenuItems(at: context.sourcePoint, selecting: false)
+            defaultTouchMenuItems(at: context.sourcePoint, selecting: false) + context.systemMenuItems
         }
 
         /// Builds the menu while text is selected, independently of touchMenuItems(for:).
         /// Action identifiers are terminal.copy, terminal.paste and terminal.selectAll.
+        /// The returned elements include UIKit's AutoFill menu when available.
         /// Use the context's text snapshot in host handlers and capture owners weakly.
         open func touchSelectionMenuItems(for context: TerminalTouchSelectionMenuContext) -> [UIMenuElement] {
-            defaultTouchMenuItems(at: context.sourcePoint, selecting: true)
+            defaultTouchMenuItems(at: context.sourcePoint, selecting: true) + context.systemMenuItems
         }
 
         open weak var delegate: (any TerminalSurfaceViewDelegate)? {

@@ -35,16 +35,21 @@
         }
 
         func touchSelectionMenu(at point: CGPoint, suggestedActions: [UIMenuElement]) -> UIMenu {
+            let systemMenuItems = systemAutoFillMenus(in: suggestedActions)
             let items: [UIMenuElement]
             if let text = touchSelection.text {
                 items = touchSelectionMenuItems(
-                    for: TerminalTouchSelectionMenuContext(sourcePoint: point, selectedText: text)
+                    for: TerminalTouchSelectionMenuContext(
+                        sourcePoint: point, selectedText: text, systemMenuItems: systemMenuItems
+                    )
                 )
             } else {
-                items = touchMenuItems(for: TerminalTouchMenuContext(sourcePoint: point))
+                items = touchMenuItems(
+                    for: TerminalTouchMenuContext(sourcePoint: point, systemMenuItems: systemMenuItems)
+                )
             }
             // UIKit owns compact presentation, overflow arrows and expansion.
-            return UIMenu(children: items + systemAutoFillMenus(in: suggestedActions))
+            return UIMenu(children: items)
         }
 
         private func systemAutoFillMenus(in elements: [UIMenuElement]) -> [UIMenuElement] {

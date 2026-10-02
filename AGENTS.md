@@ -470,8 +470,11 @@ menu; override the independent `touchMenuItems(for:)` and
 `touchSelectionMenuItems(for:)` methods before/after selection. Like the AppKit
 menu hook, each returns default actions that the host can localize by identifier
 (`terminal.copy`, `terminal.paste`, `terminal.select`, `terminal.selectAll`) and
-extend. Preserve returned elements unchanged; the host owns grouping and
-separators. Paste remains on `pasteFromPasteboard`. The example UI tests cover
+extend. The contexts carry `systemMenuItems`, and the default return values include
+those system menus after the terminal actions. The host's final return value is
+presented as-is; the wrapper does not append AutoFill again. Preserve returned
+elements unchanged; the host owns grouping, ordering and separators. Paste remains
+on `pasteFromPasteboard`. The example UI tests cover
 the gesture and menu contracts.
 
 The following legacy path applies when the inline mode is disabled.
