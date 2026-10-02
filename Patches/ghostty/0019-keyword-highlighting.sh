@@ -96,6 +96,11 @@ pub const Set = struct {
                 if (end > start) {
                     for (map.items[start..end]) |cell| {
                         if (cell.x >= state.cols) continue; // Synthetic newline.
+                        const cells = state.row_data.slice().items(.cells)[state.viewportStart() + cell.y].slice();
+                        const raw = cells.items(.raw)[cell.x];
+                        const style: terminal.Style = if (raw.style_id != 0) cells.items(.style)[cell.x] else .{};
+                        // Applications own their ANSI colors. Highlight only cells using both default channels.
+                        if (style.fg_color != .none or style.bg(&raw, &state.colors.palette) != null or style.flags.inverse) continue;
                         const entry = try result.getOrPut(alloc, cell);
                         if (!entry.found_existing) entry.value_ptr.* = rule.colors;
                     }
@@ -231,6 +236,59 @@ test "keyword highlighting supports background only and unchanged channels" {
     try t.expect(ok.foreground == null and ok.background == null);
     try t.expectError(error.InvalidKeywordColor, Rule.init("1000000,-:Error"));
 }
+test "keyword highlighting preserves ANSI foreground background and inverse cells" {
+    const t = std.testing;
+    try oni.testing.ensureInit();
+    for ([_][]const u8 { "31", "38;5;123", "38;2;12;34;56", "44", "48;5;123", "48;2;12;34;56", "7" }) |sgr| {
+        var term = try terminal.Terminal.init(t.io, t.allocator, .{ .cols = 40, .rows = 2 });
+        defer term.deinit(t.allocator);
+        var stream = term.vtStream();
+        defer stream.deinit();
+        stream.nextSlice("Error ");
+        const styled = try std.fmt.allocPrint(t.allocator, "\x1b[{s}mError\x1b[0m Error", .{sgr});
+        defer t.allocator.free(styled);
+        stream.nextSlice(styled);
+        var state: terminal.RenderState = .empty;
+        defer state.deinit(t.allocator);
+        try state.update(t.allocator, &term);
+        var set = try Set.init(t.allocator, &.{ "FF0000,112233:Error" });
+        defer set.deinit(t.allocator);
+        var colors = try set.renderCellMap(t.allocator, &state);
+        defer colors.deinit(t.allocator);
+        try t.expectEqual(@as(usize, 10), colors.count());
+        for (0..5) |x| {
+            try t.expect(colors.get(.{ .x = @intCast(x), .y = 0 }) != null);
+            try t.expect(colors.get(.{ .x = @intCast(x + 6), .y = 0 }) == null);
+            try t.expect(colors.get(.{ .x = @intCast(x + 12), .y = 0 }) != null);
+        }
+    }
+}
+
+test "keyword highlighting resumes after channel resets and recomputes changed styles" {
+    const t = std.testing;
+    try oni.testing.ensureInit();
+    var term = try terminal.Terminal.init(t.io, t.allocator, .{ .cols = 20, .rows = 2 });
+    defer term.deinit(t.allocator);
+    var stream = term.vtStream();
+    defer stream.deinit();
+    stream.nextSlice("\x1b[31;44mEr\x1b[39;49mror");
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(t.allocator);
+    try state.update(t.allocator, &term);
+    var set = try Set.init(t.allocator, &.{ "FF0000,112233:Error" });
+    defer set.deinit(t.allocator);
+    var colors = try set.renderCellMap(t.allocator, &state);
+    defer colors.deinit(t.allocator);
+    try t.expectEqual(@as(usize, 3), colors.count());
+    try t.expect(colors.get(.{ .x = 0, .y = 0 }) == null);
+    try t.expect(colors.get(.{ .x = 2, .y = 0 }) != null);
+    stream.nextSlice("\r\x1b[32mError");
+    try state.update(t.allocator, &term);
+    var recolored = try set.renderCellMap(t.allocator, &state);
+    defer recolored.deinit(t.allocator);
+    try t.expectEqual(@as(usize, 0), recolored.count());
+}
+
 '''
 path = Path(root) / "src/renderer/keyword.zig"
 if path.exists() and path.read_text() != keyword_source:

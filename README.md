@@ -331,8 +331,8 @@ state.setKeywordHighlightRules([
 ```
 
 Rules update existing and future surfaces and survive theme/configuration changes.
-They override selected foreground/background channels, including ANSI colors, and retain
-selection/search/cursor priority. Terminal contents, copy, search, and outgoing
+They apply only to cells using default foreground and background colors; explicit ANSI colors
+and inverse-video cells remain untouched. Selection/search/cursor colors retain priority. Terminal contents, copy, search, and outgoing
 input are unchanged. Matching joins soft-wrapped viewport rows and handles UTF-8
 and grapheme cells; context beyond the viewport is not searched. Regex input,
 backtracking and match counts are bounded. At most 64 rules are accepted, each

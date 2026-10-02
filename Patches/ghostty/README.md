@@ -237,8 +237,9 @@ to move back.
 
 - `0019-keyword-highlighting.sh` — ordered foreground/background regex rules, native
   Oniguruma validation, bounded matching and viewport cell mapping. Colors are
-  render-only and yield to selection/search. Includes native regression tests
-  for soft wraps, Unicode, word boundaries and pathological expressions.
+  render-only, preserve explicit ANSI colors and inverse video, and yield to selection/search.
+  Includes native regression tests for ANSI colors and resets, soft wraps, Unicode,
+  word boundaries and pathological expressions.
 
 Dropped once upstream carried them: `0014-free-text-signature.patch`
 (`ghostty_surface_free_text` taking the surface, upstream `4803d58b`). A
