@@ -44,6 +44,23 @@ struct TerminalTouchSelectionTests {
         #expect(!bytes.contains(Data("\u{1B}[<".utf8)))
     }
 
+    @Test func nearestTextRowSkipsWhitespaceAndStaysWithinTheVisibleRows() async throws {
+        let harness = await GhosttySurfaceHarness.make()
+        defer { harness.tearDown() }
+        let surface = try #require(harness.surface)
+        let metrics = try #require(surface.size())
+        let columns = Int(metrics.columns)
+        let rows = 0 ..< Int(metrics.rows)
+        #expect(surface.nearestTextRow(to: 3, in: rows, columns: columns) == nil)
+        harness.receive("\u{1B}[2J\u{1B}[Hfirst row\r\n   \r\n你好\r\n\r\nlast row")
+        #expect(surface.nearestTextRow(to: 0, in: rows, columns: columns) == 0)
+        #expect(surface.nearestTextRow(to: 1, in: rows, columns: columns) == 0)
+        #expect(surface.nearestTextRow(to: 3, in: rows, columns: columns) == 2)
+        #expect(surface.nearestTextRow(to: rows.upperBound - 1, in: rows, columns: columns) == 4)
+        #expect(surface.nearestTextRow(to: 1, in: 1 ..< 4, columns: columns) == 2)
+        #expect(surface.nearestTextRow(to: 5, in: 5 ..< rows.upperBound, columns: columns) == nil)
+    }
+
     @Test func selectAllStopsAfterContentAndKeepsBothCellsOfTheLastGlyph() async throws {
         let harness = await GhosttySurfaceHarness.make()
         defer { harness.tearDown() }

@@ -77,6 +77,27 @@ extension TerminalSurface {
         return nil
     }
 
+    /// Find visible text nearest the touched row, preferring the row above on a tie.
+    func nearestTextRow(to row: Int, in rows: Range<Int>, columns: Int) -> Int? {
+        guard columns > 0, rows.contains(row) else { return nil }
+        func hasText(at row: Int) -> Bool {
+            let start = row * columns
+            guard let text = readCells(start ... (start + columns - 1), columns: columns)?.text else { return false }
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        for distance in 0 ..< rows.count {
+            let above = row - distance
+            if above >= rows.lowerBound, hasText(at: above) {
+                return above
+            }
+            let below = row + distance
+            if distance > 0, below < rows.upperBound, hasText(at: below) {
+                return below
+            }
+        }
+        return nil
+    }
+
     func wordCells(at cell: Int, columns: Int) -> ClosedRange<Int> {
         var range = glyphCells(at: cell, columns: columns)
         func isWord(_ range: ClosedRange<Int>) -> Bool {

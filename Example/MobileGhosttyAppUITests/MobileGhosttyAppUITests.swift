@@ -114,6 +114,24 @@ import XCTest
                 capture("inline-selection-all")
                 app.menuItems["Copy"].tap()
                 XCTAssertTrue((copiedSelectionText(in: terminal, timeout: 2) ?? "").contains("inline-selection 你好"))
+
+                let output = app.descendants(matching: .any)["terminal.output"].firstMatch
+                let viewport = try XCTUnwrap(output.value as? String)
+                let nearestLine = try XCTUnwrap(
+                    viewport.components(separatedBy: .newlines)
+                        .last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+                )
+                // Select from empty space below the prompt, then copy the nearest text row.
+                terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.8)).press(forDuration: 0.8)
+                XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
+                app.menuItems["Select"].tap()
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                app.menuItems["Copy"].tap()
+                let copiedLine = try XCTUnwrap(copiedSelectionText(in: terminal, timeout: 2))
+                XCTAssertEqual(
+                    copiedLine.trimmingCharacters(in: .whitespacesAndNewlines),
+                    nearestLine.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
             }
 
             func testInlineMenuHidesUnavailablePasteAndProvidesHostActions() throws {

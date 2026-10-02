@@ -52,6 +52,7 @@
             let cell = grid.cell(at: point, viewportOffset: touchViewportOffset)
             let total = max(grid.rows, Int(core.bridge.scrollbar?.total ?? UInt64(grid.rows)))
             let range: ClosedRange<Int>
+            var selectsRows = selectLine
             if selectAll {
                 guard let last = surface.lastTextCell(rows: total, columns: grid.columns) else { return }
                 range = 0 ... last
@@ -59,7 +60,20 @@
                 let start = cell / grid.columns * grid.columns
                 range = start ... (start + grid.columns - 1)
             } else {
-                range = surface.wordCells(at: cell, columns: grid.columns)
+                let word = surface.wordCells(at: cell, columns: grid.columns)
+                if let text = surface.readCells(word, columns: grid.columns)?.text,
+                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                {
+                    range = word
+                } else {
+                    let visibleRows = touchViewportOffset ..< min(total, touchViewportOffset + grid.rows)
+                    guard let row = surface.nearestTextRow(
+                        to: cell / grid.columns, in: visibleRows, columns: grid.columns
+                    ) else { return }
+                    let start = row * grid.columns
+                    range = start ... (start + grid.columns - 1)
+                    selectsRows = true
+                }
             }
             guard let text = surface.readCells(range, columns: grid.columns)?.text, !text.isEmpty else { return }
             dismissTouchSelection()
@@ -71,7 +85,7 @@
             touchSelection.surface = surface
             touchSelection.text = text
             touchSelection.pivot = surface.glyphCells(at: range.lowerBound, columns: grid.columns)
-            touchSelection.selectsRows = selectLine
+            touchSelection.selectsRows = selectsRows
             touchSelection.menuPoint = point
             let overlay = TerminalTouchSelectionOverlay(frame: bounds)
             overlay.onDrag = { [weak self] endpoint, gesture in self?.dragTouchSelection(endpoint, gesture: gesture) }
