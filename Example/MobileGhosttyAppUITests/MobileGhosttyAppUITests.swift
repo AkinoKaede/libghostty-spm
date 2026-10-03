@@ -30,6 +30,14 @@ import XCTest
             #if !targetEnvironment(macCatalyst)
                 XCUIDevice.shared.orientation = launchOrientation
             #endif
+            launchApp()
+        }
+
+        /// Pins the app to English so menu titles and key labels match the
+        /// strings below on any host language (a Chinese system localizes
+        /// UIKit's edit menu and the keyboard's Space and Return keys).
+        private func launchApp() {
+            app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
             app.launch()
         }
 
@@ -112,7 +120,7 @@ import XCTest
 
             app.terminate()
             XCTAssertTrue(app.wait(for: .notRunning, timeout: 10))
-            app.launch()
+            launchApp()
             XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
 
             terminal = try requireTerminalInteractionTarget()
@@ -378,11 +386,10 @@ import XCTest
             func testInlineLongPressSelectionCopiesWithAccessoryCommand() throws {
                 app.terminate()
                 app.launchArguments = ["--ui-testing", "--ui-testing-copy-fixture"]
-                app.launch()
+                launchApp()
                 let terminal = try requireTerminalInteractionTarget()
                 waitForOutputLine("touch-copy-ready")
-                XCTAssertTrue(app.keys["c"].waitForExistence(timeout: 4))
-                XCTAssertTrue(app.keys["c"].isHittable)
+                requireSoftwareKeyboard(in: terminal)
                 pointerCell(in: terminal, column: 4).press(forDuration: 0.8)
                 XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
                 app.menuItems["Select"].tap()
@@ -413,7 +420,7 @@ import XCTest
                     app.terminate()
                     app.launchArguments = ["--ui-testing", "--ui-testing-copy-fixture", "--ui-testing-public-copy"]
                     if sticky { app.launchArguments.append("--ui-testing-sticky-copy") }
-                    app.launch()
+                    launchApp()
                     let terminal = try requireTerminalInteractionTarget()
                     waitForOutputLine("touch-copy-ready")
                     pointerCell(in: terminal, column: 4).press(forDuration: 0.8)
@@ -425,6 +432,7 @@ import XCTest
                     XCTAssertFalse(app.menuItems["Copy"].exists)
 
                     // A public key spends an armed modifier exactly once.
+                    requireSoftwareKeyboard(in: terminal)
                     tapSoftwareKeys("echo x")
                     waitForViewport("ordinary software keys committed") {
                         Self.outputLines(of: $0).last?.hasSuffix("% echo x") == true
@@ -439,7 +447,7 @@ import XCTest
             func testInlineKeyCommandsAndAccessoryArrowsClearSelection() throws {
                 app.terminate()
                 app.launchArguments = ["--ui-testing", "--ui-testing-copy-fixture", "--ui-testing-key-commands"]
-                app.launch()
+                launchApp()
                 let terminal = try requireTerminalInteractionTarget()
                 waitForOutputLine("touch-copy-ready")
                 for input in ["arrow", "control", "escape"] {
@@ -484,7 +492,7 @@ import XCTest
                     if capturesMouse {
                         app.launchArguments.append("--ui-testing-mouse-capture")
                     }
-                    app.launch()
+                    launchApp()
                     let terminal = try requireTerminalInteractionTarget()
                     waitForOutputLine("touch-copy-ready")
                     XCTAssertFalse(app.keyboards.firstMatch.exists)
@@ -528,7 +536,7 @@ import XCTest
                 guard isIPad else { throw XCTSkip("Pointer mixing requires iPad") }
                 app.terminate()
                 app.launchArguments = ["--ui-testing"]
-                app.launch()
+                launchApp()
                 let terminal = try requireTerminalInteractionTarget()
                 typeTerminalText("clear\necho mixed-input left middle right\n", in: terminal)
                 waitForOutputLine("mixed-input left middle right")
@@ -564,7 +572,7 @@ import XCTest
             func testInlinePinchChangesTheGridAndKeepsTypingUsable() throws {
                 app.terminate()
                 app.launchArguments = ["--ui-testing"]
-                app.launch()
+                launchApp()
                 let terminal = try requireTerminalInteractionTarget()
                 let original = try XCTUnwrap(terminalGridSize(in: terminal))
                 terminal.pinch(withScale: 1.4, velocity: 1.0)
@@ -577,7 +585,7 @@ import XCTest
             func testInlineSingleTapTogglesKeyboardAndKeepsNativeAccessory() throws {
                 app.terminate()
                 app.launchArguments = ["--ui-testing"]
-                app.launch()
+                launchApp()
                 let terminal = try requireTerminalInteractionTarget()
                 typeTerminalText("echo tap-keyboard\n", in: terminal)
                 XCTAssertTrue(app.buttons["Control"].exists)
@@ -597,7 +605,7 @@ import XCTest
             func testInlineSingleTapClosesMenuBeforeTogglingKeyboard() throws {
                 app.terminate()
                 app.launchArguments = ["--ui-testing"]
-                app.launch()
+                launchApp()
                 let terminal = try requireTerminalInteractionTarget()
                 typeTerminalText("echo menu-priority\n", in: terminal)
                 terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.15)).press(forDuration: 0.8)
@@ -613,7 +621,7 @@ import XCTest
             func testInlineSelectionMenuAndCopy() throws {
                 app.terminate()
                 app.launchArguments = ["--ui-testing", "--ui-testing-pasteboard", "--ui-testing-host-menu"]
-                app.launch()
+                launchApp()
                 let terminal = try requireTerminalInteractionTarget()
                 typeTerminalText("clear\n", in: terminal)
                 typeTerminalText("echo inline-selection 你好\n", in: terminal)
@@ -679,7 +687,7 @@ import XCTest
             func testInlineMenuHidesUnavailablePasteAndProvidesHostActions() throws {
                 app.terminate()
                 app.launchArguments = ["--ui-testing", "--ui-testing-touch-menu"]
-                app.launch()
+                launchApp()
                 let terminal = try requireTerminalInteractionTarget()
                 typeTerminalText("clear\n", in: terminal)
                 typeTerminalText("echo inline-selection\n", in: terminal)
@@ -687,7 +695,7 @@ import XCTest
                 point.press(forDuration: 0.8)
                 XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
                 XCTAssertFalse(app.menuItems["Paste"].exists)
-                XCTAssertTrue(nativeMenuItem("Host Action").waitForExistence(timeout: 4))
+                XCTAssertTrue(revealNativeMenuItem("Host Action").waitForExistence(timeout: 4))
                 XCTAssertFalse(nativeMenuItem("Inspect Selection").exists)
                 XCTAssertFalse(app.staticTexts["Paste"].exists)
                 try assertSuppliedSystemMenuIsVisible()
@@ -699,7 +707,9 @@ import XCTest
                 XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
                 XCTAssertTrue(app.menuItems["Select All"].exists)
                 XCTAssertFalse(app.menuItems["Paste"].exists)
-                XCTAssertTrue(nativeMenuItem("Inspect Selection").waitForExistence(timeout: 4))
+                // A selection menu can page its trailing host items behind
+                // UIKit's overflow arrow on a narrow phone.
+                XCTAssertTrue(revealNativeMenuItem("Inspect Selection").waitForExistence(timeout: 4))
                 XCTAssertFalse(nativeMenuItem("Host Action").exists)
                 try assertSuppliedSystemMenuIsVisible()
                 XCTAssertFalse(app.staticTexts["Paste"].exists)
@@ -745,7 +755,7 @@ import XCTest
             func testInlineDoubleTripleTapAndSelectionDismissal() throws {
                 app.terminate()
                 app.launchArguments = ["--ui-testing"]
-                app.launch()
+                launchApp()
                 let terminal = try requireTerminalInteractionTarget()
                 typeTerminalText("clear\n" + String(repeating: "echo alpha beta\n", count: 25), in: terminal)
                 let wordPoint = pointerCell(in: terminal, column: 1)
@@ -771,7 +781,7 @@ import XCTest
             func testInlineSelectionScrollsAtBothEdgesAndCopiesHistory() throws {
                 app.terminate()
                 app.launchArguments = ["--ui-testing"]
-                app.launch()
+                launchApp()
                 let terminal = try requireTerminalInteractionTarget()
                 let commands = (0 ..< 45).map { String(format: "echo history-%03d left middle right\n", $0) }.joined()
                 typeTerminalText("clear\n" + commands, in: terminal)
@@ -1072,6 +1082,20 @@ import XCTest
                 let rightClick = pointerCell(in: element, column: iPadPointerSelectionPrefix.count + expectedPointerSelection.count / 2)
                 start.click(forDuration: 0.1, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
                 return rightClick
+            }
+
+            /// The fixture's first responder raises the keyboard, but on a
+            /// loaded runner it can arrive after the first query or not at
+            /// all; a tap on the terminal is how a user would bring it up.
+            private func requireSoftwareKeyboard(in terminal: XCUIElement) {
+                let hittable = NSPredicate(format: "isHittable == true")
+                for attempt in 0 ..< 3 {
+                    let shown = XCTNSPredicateExpectation(predicate: hittable, object: app.keys["c"])
+                    if XCTWaiter.wait(for: [shown], timeout: 4) == .completed { return }
+                    guard attempt < 2 else { break }
+                    tapTerminal(in: terminal)
+                }
+                XCTFail("Software keyboard never appeared")
             }
 
             private func tapSoftwareKeys(_ text: String) {

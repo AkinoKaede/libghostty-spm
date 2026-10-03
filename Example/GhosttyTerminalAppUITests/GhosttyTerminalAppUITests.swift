@@ -12,6 +12,12 @@ final class GhosttyTerminalAppUITests: XCTestCase {
         // every normalized coordinate below onto a different terminal row.
         app.launchArguments = ["--ui-testing", "-ApplePersistenceIgnoreState", "YES"]
         systemAlertMonitor = installSystemAlertHandler()
+        launchApp()
+    }
+
+    /// Pins the app to English so menu titles match on any host language.
+    private func launchApp() {
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
     }
 
@@ -161,7 +167,7 @@ final class GhosttyTerminalAppUITests: XCTestCase {
 
         app.terminate()
         XCTAssertTrue(app.wait(for: .notRunning, timeout: 10))
-        app.launch()
+        launchApp()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
 
         terminal = try requireTerminalInteractionTarget()
