@@ -88,15 +88,19 @@ final class GhosttySurfaceHarness {
         let marker = Data("\u{1B}[?62;22".utf8)
         let clock = ContinuousClock()
         let deadline = clock.now + .seconds(2)
-        while clock.now < deadline {
+        while true {
             let bytes = outbound.bytes
             if let reply = bytes.range(of: marker) {
                 return Data(bytes[..<reply.lowerBound])
             }
+            // A busy main actor can resume after the deadline even though
+            // the reply arrived while suspended. Inspect it before timing out.
+            guard clock.now < deadline else {
+                Issue.record("device attributes reply never arrived")
+                return bytes
+            }
             await Task.yield()
         }
-        Issue.record("device attributes reply never arrived")
-        return outbound.bytes
     }
 
     /// The outbound bytes since the last take, then a clean slate: `drain`
