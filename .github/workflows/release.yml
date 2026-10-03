@@ -120,7 +120,8 @@ jobs:
         run: ./Script/test.sh
 
       - name: Run Swift Tests
-        run: swift test
+        # The native fixtures share the main actor and have bounded reply waits.
+        run: swift test --no-parallel
 
       - name: Restore Release Manifest
         run: |

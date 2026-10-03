@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Dispatch a workflow on main and wait for the run it starts, failing with
+# Dispatch a workflow on WORKFLOW_REF (default: main) and wait for the run it starts, failing with
 # it. `gh workflow run` returns before the run exists, so the new run is
 # the first one listed after the dispatch that was not there before.
 #
@@ -22,12 +22,14 @@ if [ -z "$WORKFLOW" ]; then
 fi
 shift
 
+WORKFLOW_REF=${WORKFLOW_REF:-main}
+
 latest_run() {
-    gh run list --workflow "$WORKFLOW" --branch main --limit 1 --json databaseId --jq '.[0].databaseId // 0'
+    gh run list --workflow "$WORKFLOW" --branch "$WORKFLOW_REF" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0'
 }
 
 before=$(latest_run)
-gh workflow run "$WORKFLOW" --ref main "$@"
+gh workflow run "$WORKFLOW" --ref "$WORKFLOW_REF" "$@"
 echo "[*] dispatched $WORKFLOW"
 
 for _ in $(seq 1 60); do
