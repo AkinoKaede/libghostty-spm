@@ -102,6 +102,25 @@ struct TerminalSurfaceResizeThrottleTests {
     }
 
     @Test
+    func `a scale change is not held back by an armed throttle`() {
+        let harness = SurfaceHarness(resizeThrottleInterval: 5)
+        defer { harness.tearDown() }
+        let coordinator = harness.coordinator
+        #expect(coordinator.testHooks_throttleArmed)
+        #expect(coordinator.syncedScale == 1)
+
+        // A display coming back under the window: the size is the same,
+        // the scale is not. Waiting out the window would render every
+        // frame until then at the old scale.
+        coordinator.scaleFactor = { 2 }
+        coordinator.synchronizeMetrics()
+
+        #expect(coordinator.syncedScale == 2)
+        #expect(coordinator.testHooks_throttleArmed)
+        #expect(!coordinator.testHooks_throttleTrailing)
+    }
+
+    @Test
     func `the throttle can be configured without rebuilding the surface`() {
         let options = TerminalSurfaceOptions()
         #expect(options.resizeThrottleMilliseconds == 0)

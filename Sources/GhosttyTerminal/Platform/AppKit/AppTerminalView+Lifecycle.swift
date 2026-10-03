@@ -98,6 +98,18 @@
                     name: NSWindow.didChangeScreenNotification,
                     object: window
                 )
+                // A display that is reconfigured or reconnected under the
+                // window (resolution change, a VM or remote display coming
+                // back) leaves the window on the same screen, so
+                // didChangeScreen stays silent; while it is away the window
+                // can report a 1x scale. This is the notification that
+                // says it is back.
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(screenParametersDidChange),
+                    name: NSApplication.didChangeScreenParametersNotification,
+                    object: nil
+                )
                 // Minimizing, hiding the app (Cmd+H), and full cover all
                 // arrive as occlusion changes. Without this a hidden window
                 // with streaming output keeps drawing at display rate.
@@ -134,16 +146,48 @@
         }
 
         @objc func windowDidChangeScreen(_: Notification) {
-            // Defer one runloop tick so AppKit's layout pass and the
-            // window's new backingScaleFactor have both settled before we
-            // re-derive metrics. Calling synchronously can race with the
-            // layout pass and re-introduce the drift we're trying to fix.
+            refreshScreenMetrics()
+        }
+
+        @objc func screenParametersDidChange(_: Notification) {
+            refreshScreenMetrics()
+        }
+
+        /// Re-derives scale and size now, so the next frame already uses
+        /// the new screen's scale, then once more a runloop tick later:
+        /// AppKit's layout pass and the window's new backingScaleFactor may
+        /// settle only after the notification, and the second pass picks up
+        /// whatever the first one read too early.
+        func refreshScreenMetrics() {
+            syncScreenMetrics()
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                updateMetalLayerMetrics()
-                core.synchronizeMetrics()
-                core.requestImmediateTick()
+                self?.syncScreenMetrics()
             }
+        }
+
+        private func syncScreenMetrics() {
+            guard window != nil else { return }
+            updateMetalLayerMetrics()
+            core.synchronizeMetrics()
+            core.requestImmediateTick()
+        }
+
+        /// The window's scale while it is on a screen. A window whose
+        /// screen is momentarily gone (a display disconnecting or being
+        /// reconfigured) reports 1x; rendering at that scale for the gap
+        /// shows a blurry, oversized frame, so keep the scale the surface
+        /// already has until a screen is back.
+        func currentScaleFactor() -> Double {
+            if let window, window.screen != nil {
+                return Double(window.backingScaleFactor)
+            }
+            if let scale = core.syncedScale {
+                return scale
+            }
+            return Double(
+                window?.backingScaleFactor
+                    ?? NSScreen.main?.backingScaleFactor ?? 2.0
+            )
         }
 
         @objc func windowDidChangeOcclusionState(_: Notification) {
@@ -168,6 +212,11 @@
             NotificationCenter.default.removeObserver(
                 self,
                 name: NSWindow.didChangeScreenNotification,
+                object: nil
+            )
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSApplication.didChangeScreenParametersNotification,
                 object: nil
             )
             NotificationCenter.default.removeObserver(

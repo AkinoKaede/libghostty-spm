@@ -92,6 +92,10 @@ final class TerminalSurfaceCoordinator {
     /// shows background instead of a stretched frame. `nil` until the first
     /// sync and after teardown.
     private(set) var syncedViewSize: (width: Double, height: Double)?
+    /// The content scale the surface was last sized at. A platform view
+    /// falls back to it while its window has no screen, and a scale change
+    /// is never held back by the resize throttle.
+    private(set) var syncedScale: Double?
 
     private var isDisplayVisible = true
     /// The last visibility the SwiftUI host declared through
@@ -310,6 +314,14 @@ final class TerminalSurfaceCoordinator {
             return
         }
 
+        // A scale change (the window crossed displays, or a display came
+        // back) cannot wait out the window: until it lands every frame
+        // renders at the old scale. The armed timer stays as it is.
+        if resizeThrottleArmed, scaleFactor() != syncedScale {
+            performMetricsSync()
+            return
+        }
+
         guard !resizeThrottleArmed else {
             // Newest wins: the trailing fire re-reads the live view size,
             // so nothing needs to be captured here.
@@ -381,6 +393,7 @@ final class TerminalSurfaceCoordinator {
         surface.setContentScale(x: scale, y: scale)
         surface.setSize(width: pixelWidth, height: pixelHeight)
         syncedViewSize = size
+        syncedScale = scale
 
         guard let surfaceSize = surface.size(),
               surfaceSize.columns > 0, surfaceSize.rows > 0
@@ -593,6 +606,7 @@ final class TerminalSurfaceCoordinator {
         surface = nil
         lastMetrics = nil
         syncedViewSize = nil
+        syncedScale = nil
         // Retire any armed timer with the surface it was armed for, and
         // clear the gate so the replacement surface sizes immediately
         // instead of being suppressed by the old surface's armed flag.

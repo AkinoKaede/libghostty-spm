@@ -85,10 +85,7 @@
             core.isAttached = { [weak self] in self?.window != nil }
             core.displayLinkContext = .view(self)
             core.scaleFactor = { [weak self] in
-                Double(
-                    self?.window?.backingScaleFactor
-                        ?? NSScreen.main?.backingScaleFactor ?? 2.0
-                )
+                self?.currentScaleFactor() ?? 2.0
             }
             core.viewSize = { [weak self] in
                 guard let self else { return (0, 0) }
