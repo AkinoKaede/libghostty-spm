@@ -5,6 +5,7 @@
 //  Created by Lakr233 on 2026/3/16.
 //
 
+import Combine
 import Foundation
 import GhosttyKit
 import SwiftUI

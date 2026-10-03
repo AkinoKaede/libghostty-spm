@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 @testable import GhosttyTerminal
 import SwiftUI
 import Testing

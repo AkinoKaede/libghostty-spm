@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 @testable import GhosttyTerminal
 import Testing

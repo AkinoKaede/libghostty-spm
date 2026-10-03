@@ -11,6 +11,9 @@ Swift Package wrapping [Ghostty](https://ghostty.org)'s terminal emulator librar
 - Mac Catalyst 15+
 - visionOS 1+
 
+Requires Swift 6.2 (Xcode 26 or later). The package builds in the Swift 6
+language mode.
+
 ## Products
 
 | Library           | Description                                                                     |
