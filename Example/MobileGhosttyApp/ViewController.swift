@@ -7,14 +7,25 @@ final class ViewController: UIViewController {
     private static let lightThemeKey = "SelectedTheme.light"
     private static let darkThemeKey = "SelectedTheme.dark"
 
-    private lazy var terminalView: TerminalView = .init(frame: .zero)
+    private lazy var terminalView = MobileExampleTerminalView(frame: .zero)
     private lazy var shellSession: ShellSession = .init(shell: defaultSandboxShell)
     private var isKeyboardVisible = false
     private lazy var controller: TerminalController = .init(
         theme: Self.savedTerminalTheme()
     ) { builder in
         builder.withBackgroundOpacity(0)
+        #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+                builder.withWindowPaddingX(TerminalGridAccessibilityView.padding)
+                builder.withWindowPaddingY(TerminalGridAccessibilityView.padding)
+                builder.withCustom("window-padding-balance", "false")
+            }
+        #endif
     }
+
+    #if DEBUG
+        private var gridAccessibility: TerminalGridAccessibilityView?
+    #endif
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -57,6 +68,7 @@ final class ViewController: UIViewController {
 
     private func configureTerminalView() {
         terminalView.delegate = self
+        terminalView.usesInlineTextSelection = !ProcessInfo.processInfo.arguments.contains("--legacy-selection")
         terminalView.isAccessibilityElement = true
         terminalView.accessibilityIdentifier = "terminal.surface"
         terminalView.accessibilityLabel = "Terminal"
@@ -81,9 +93,54 @@ final class ViewController: UIViewController {
 
         #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+                UIPasteboard.general.items = []
+            }
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing-pasteboard") {
+                UIPasteboard.general.string = "paste fixture"
+            }
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing-touch-menu") {
+                UIPasteboard.general.items = []
+            }
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
                 let output = TerminalOutputAccessibilityView(
                     session: shellSession.terminalSession
                 )
+                let menus = UILabel(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+                menus.isAccessibilityElement = true
+                menus.accessibilityIdentifier = "terminal.systemMenus"
+                menus.accessibilityLabel = "System Menus"
+                menus.accessibilityValue = "pending"
+                menus.alpha = 0.01
+                view.addSubview(menus)
+                terminalView.onSystemMenuItems = { [weak menus, weak terminalView] items in
+                    @MainActor
+                    func availableActions(in elements: [UIMenuElement]) -> [String] {
+                        elements.flatMap { element -> [String] in
+                            if let menu = element as? UIMenu {
+                                return availableActions(in: menu.children)
+                            }
+                            if let action = element as? UIAction,
+                               action.attributes.isDisjoint(with: [.hidden, .disabled])
+                            {
+                                return [action.title]
+                            }
+                            if let command = element as? UICommand,
+                               command.attributes.isDisjoint(with: [.hidden, .disabled]),
+                               terminalView?.canPerformAction(command.action, withSender: command) == true
+                            {
+                                return [command.title]
+                            }
+                            return []
+                        }
+                    }
+                    let actions = availableActions(in: items)
+                    menus?.accessibilityValue = String(actions.count)
+                    menus?.accessibilityLabel = actions.joined(separator: ", ")
+                }
+                let grid = TerminalGridAccessibilityView()
+                gridAccessibility = grid
+                grid.translatesAutoresizingMaskIntoConstraints = false
+                view.addSubview(grid)
                 output.translatesAutoresizingMaskIntoConstraints = false
                 view.addSubview(output)
                 NSLayoutConstraint.activate([
@@ -91,6 +148,10 @@ final class ViewController: UIViewController {
                     output.leadingAnchor.constraint(equalTo: view.leadingAnchor),
                     output.widthAnchor.constraint(equalToConstant: 1),
                     output.heightAnchor.constraint(equalToConstant: 1),
+                    grid.topAnchor.constraint(equalTo: view.topAnchor),
+                    grid.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                    grid.widthAnchor.constraint(equalToConstant: 1),
+                    grid.heightAnchor.constraint(equalToConstant: 1),
                 ])
             }
         #endif
@@ -136,8 +197,23 @@ final class ViewController: UIViewController {
     }
 
     private func activateTerminal() {
+        #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing-hidden-selection") {
+                var text = "\u{1B}[2J\u{1B}[H" + String(repeating: "touch-copy-ready\r\n", count: 80)
+                if ProcessInfo.processInfo.arguments.contains("--ui-testing-mouse-capture") {
+                    text += "\u{1B}[?1000h\u{1B}[?1006h"
+                }
+                shellSession.terminalSession.receive(text)
+                return
+            }
+        #endif
         terminalView.becomeFirstResponder()
         shellSession.start()
+        #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing-copy-fixture") {
+                shellSession.terminalSession.sendInput(Data("clear\recho touch-copy-ready\r".utf8))
+            }
+        #endif
     }
 
     // MARK: - Persistence
@@ -281,6 +357,34 @@ final class ViewController: UIViewController {
 }
 
 #if DEBUG
+    private final class TerminalGridAccessibilityView: UIView {
+        static let padding = 2
+        var cellSize: CGSize?
+
+        init() {
+            super.init(frame: .zero)
+            isAccessibilityElement = true
+            accessibilityTraits = .staticText
+            accessibilityIdentifier = "terminal.grid"
+            accessibilityLabel = "Terminal Grid"
+            isUserInteractionEnabled = false
+            alpha = 0.01
+        }
+
+        @available(*, unavailable)
+        required init?(coder _: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override var accessibilityValue: String? {
+            get {
+                guard let cellSize else { return "" }
+                return "cell=\(cellSize.width),\(cellSize.height) padding=\(Self.padding)"
+            }
+            set {}
+        }
+    }
+
     private final class TerminalOutputAccessibilityView: UIView {
         private let session: InMemoryTerminalSession
 
@@ -311,9 +415,20 @@ final class ViewController: UIViewController {
 extension ViewController:
     TerminalSurfaceTitleDelegate,
     TerminalSurfaceCloseDelegate,
+    TerminalSurfaceGridResizeDelegate,
     TerminalSurfaceTextSelectionRequestDelegate,
     UIAdaptivePresentationControllerDelegate
 {
+    func terminalDidResize(_ size: TerminalGridMetrics) {
+        #if DEBUG
+            let scale = terminalView.traitCollection.displayScale
+            gridAccessibility?.cellSize = CGSize(
+                width: CGFloat(size.cellWidthPixels) / scale,
+                height: CGFloat(size.cellHeightPixels) / scale
+            )
+        #endif
+    }
+
     func terminalDidChangeTitle(_ title: String) {
         self.title = title
     }
@@ -362,5 +477,71 @@ private extension UIColor {
             blue: CGFloat(b) / 255,
             alpha: 1
         )
+    }
+}
+
+/// Demonstrates the independent subclass hooks without changing the default menu.
+private final class MobileExampleTerminalView: TerminalView {
+    #if DEBUG
+        var onSystemMenuItems: (([UIMenuElement]) -> Void)?
+
+        private var showsTestMenuItems: Bool {
+            ProcessInfo.processInfo.arguments.contains("--ui-testing-touch-menu")
+                || ProcessInfo.processInfo.arguments.contains("--ui-testing-host-menu")
+        }
+    #endif
+
+    override func touchMenuItems(for context: TerminalTouchMenuContext) -> [UIMenuElement] {
+        var items = super.touchMenuItems(for: context)
+        #if DEBUG
+            onSystemMenuItems?(context.systemMenuItems)
+            if showsTestMenuItems {
+                items.append(UIAction(title: "Host Action") { [weak self] _ in
+                    self?.accessibilityValue = "host:none"
+                })
+            }
+        #endif
+        return items
+    }
+
+    override func touchSelectionMenuItems(for context: TerminalTouchSelectionMenuContext) -> [UIMenuElement] {
+        var items = super.touchSelectionMenuItems(for: context)
+        #if DEBUG
+            onSystemMenuItems?(context.systemMenuItems)
+            #if !targetEnvironment(macCatalyst)
+                if ProcessInfo.processInfo.arguments.contains("--ui-testing-key-commands") {
+                    for (title, input, modifiers) in [
+                        ("Send Control A", "a", UIKeyModifierFlags.control),
+                        ("Send Escape", UIKeyCommand.inputEscape, UIKeyModifierFlags()),
+                    ] {
+                        items.append(UIAction(title: title) { [weak self] _ in
+                            guard let self, let command = keyCommands?.first(where: {
+                                $0.input == input && $0.modifierFlags == modifiers
+                            }), let action = command.action else { return }
+                            UIApplication.shared.sendAction(action, to: self, from: command, for: nil)
+                        })
+                    }
+                }
+                if ProcessInfo.processInfo.arguments.contains("--ui-testing-public-copy") {
+                    items.insert(UIAction(title: "Send Key") { [weak self] _ in
+                        guard let self else { return }
+                        UIPasteboard.general.items = []
+                        accessibilityValue = nil
+                        if ProcessInfo.processInfo.arguments.contains("--ui-testing-sticky-copy") {
+                            toggleStickyModifier(.command)
+                            _ = sendKey(.c)
+                        } else {
+                            _ = sendKey(.c, modifiers: .super_)
+                        }
+                    }, at: 0)
+                }
+            #endif
+            if showsTestMenuItems {
+                items.append(UIAction(title: "Inspect Selection") { [weak self] _ in
+                    self?.accessibilityValue = "host:" + context.selectedText
+                })
+            }
+        #endif
+        return items
     }
 }

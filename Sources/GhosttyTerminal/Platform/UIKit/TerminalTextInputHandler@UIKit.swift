@@ -120,7 +120,7 @@
                     .input,
                     "typed text has newlines, sending as paste bytes=\(text.utf8.count)"
                 )
-                view.surface?.paste(text: text)
+                view.paste(text: text)
                 return
             }
 
@@ -134,7 +134,7 @@
 
             text.withCString { ptr in
                 event.text = ptr
-                view.surface?.sendKeyEvent(event)
+                view.sendInputKeyEvent(event)
             }
         }
 
@@ -169,6 +169,7 @@
                 }
             #endif
 
+            view.dismissTouchSelection()
             view.inputDelegate?.textWillChange(view)
             view.inputDelegate?.selectionWillChange(view)
 

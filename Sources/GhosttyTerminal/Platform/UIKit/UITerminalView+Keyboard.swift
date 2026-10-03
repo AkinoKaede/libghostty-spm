@@ -14,6 +14,8 @@
         /// A press the key path already delivered, telling the UITextInput
         /// echo to stay silent.
         var keyHandled = false
+        /// Copy is handled by the view; its repeat and release never reach the core.
+        var touchCopyKeycodes: Set<UInt32> = []
         /// Signatures of keys already delivered this runloop turn by one of
         /// the two paths that can carry a key we register as a `UIKeyCommand`
         /// (the Ctrl combos, Escape). One physical press can reach us twice —
@@ -220,7 +222,7 @@
             action: ghostty_input_action_e
         ) -> Bool {
             notePointerModifierFlags(key.modifierFlags)
-            guard let surface else {
+            guard surface != nil else {
                 TerminalDebugLog.log(.input, "uikit key ignored: missing surface")
                 return false
             }
@@ -264,7 +266,7 @@
             keyEvent.consumed_mods = TerminalInputModifiers(from: consumedFlags).ghosttyMods
 
             guard action == GHOSTTY_ACTION_PRESS || action == GHOSTTY_ACTION_REPEAT else {
-                return surface.sendKeyEvent(keyEvent)
+                return sendInputKeyEvent(keyEvent)
             }
 
             let filteredIgnoringModifiers = TerminalInputText.filteredFunctionKeyText(
@@ -290,7 +292,7 @@
             }
 
             guard !isCommandModified else {
-                let consumed = surface.sendKeyEvent(keyEvent)
+                let consumed = sendInputKeyEvent(keyEvent)
                 if let keyboardZoomDirection {
                     scheduleViewportRefreshAfterKeyboardZoom(keyboardZoomDirection)
                 }
@@ -314,12 +316,12 @@
             }
 
             guard let text = derivedText, !text.isEmpty else {
-                return surface.sendKeyEvent(keyEvent)
+                return sendInputKeyEvent(keyEvent)
             }
 
             return text.withCString { ptr in
                 keyEvent.text = ptr
-                return surface.sendKeyEvent(keyEvent)
+                return sendInputKeyEvent(keyEvent)
             }
         }
 
@@ -555,7 +557,7 @@
                     return
                 }
 
-                guard let surface else { return }
+                guard surface != nil else { return }
                 TerminalDebugLog.log(
                     .input,
                     "input method left \(keys.count) key(s) unclaimed, replaying"
@@ -571,17 +573,17 @@
                     if let text = key.text, !text.isEmpty {
                         text.withCString { ptr in
                             keyEvent.text = ptr
-                            _ = surface.sendKeyEvent(keyEvent)
+                            _ = sendInputKeyEvent(keyEvent)
                         }
                     } else {
-                        _ = surface.sendKeyEvent(keyEvent)
+                        _ = sendInputKeyEvent(keyEvent)
                     }
                     // The matching release: pressesEnded skips loaned
                     // presses, so the pair completes here.
                     var release = keyEvent
                     release.action = GHOSTTY_ACTION_RELEASE
                     release.text = nil
-                    _ = surface.sendKeyEvent(release)
+                    _ = sendInputKeyEvent(release)
                 }
             }
         }

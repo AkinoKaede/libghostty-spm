@@ -25,7 +25,16 @@
             if handleIndirectPointerTouches(touches, phase: .began, event: event) {
                 return
             }
+            touchSelection.lastInputWasDirect = true
+            if let overlay = touchSelection.overlay,
+               touches.contains(where: { $0.view?.isDescendant(of: overlay) == true })
+            {
+                return
+            }
             super.touchesBegan(touches, with: event)
+            if usesInlineTextSelection {
+                return
+            }
             #if targetEnvironment(macCatalyst)
                 becomeFirstResponder()
             #else
@@ -75,6 +84,10 @@
             with event: UIEvent?
         ) {
             if handleIndirectPointerTouches(touches, phase: .ended, event: event) {
+                return
+            }
+            if usesInlineTextSelection {
+                super.touchesEnded(touches, with: event)
                 return
             }
             #if !targetEnvironment(macCatalyst)
@@ -146,7 +159,9 @@
                 )
                 gesture.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
                 gesture.maximumNumberOfTouches = 1
+                gesture.delegate = self
                 addGestureRecognizer(gesture)
+                touchSelection.scrollGesture = gesture
 
                 let longPress = UILongPressGestureRecognizer(
                     target: self,
@@ -160,9 +175,11 @@
                 longPress.cancelsTouchesInView = false
                 longPress.delegate = self
                 addGestureRecognizer(longPress)
+                touchSelection.longPress = longPress
 
                 setupIndirectPointerSelectionGesture()
                 setupPinchZoomGesture()
+                setupTouchSelectionGestures()
             }
 
             /// One left click at `point`, the way a finger tap reaches the
@@ -224,6 +241,10 @@
             ) {
                 guard gesture.state == .began else { return }
                 softwareKeyboard.tapCandidateArmed = false
+                if usesInlineTextSelection {
+                    presentTouchMenu(at: gesture.location(in: self))
+                    return
+                }
                 guard let delegate = activeTextSelectionDelegate else { return }
                 guard let surface else { return }
                 guard case let .inMemory(session) = configuration.backend else {
@@ -273,6 +294,23 @@
             }
         #endif
 
+        /// Touches on the selection handles belong to the overlay's own pan
+        /// recognizers. A single tap records, before UIKit can dismiss the
+        /// edit menu, whether it began with the menu open or a fling running.
+        public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            if let overlay = touchSelection.overlay, touch.view?.isDescendant(of: overlay) == true {
+                return false
+            }
+            if usesInlineTextSelection, gestureRecognizer === touchSelection.tapRecognizers.first {
+                touchSelection.tapBeganWithMenu = isTouchMenuVisible
+                touchSelection.tapStopsMomentum = momentumScroll.displayLink != nil
+                if touchSelection.tapStopsMomentum {
+                    stopMomentumScrolling()
+                }
+            }
+            return true
+        }
+
         /// Gate the long-press recognizer at the gesture layer when no host
         /// has opted into selection delegate. Without this, the recognizer
         /// still enters the touch arena for 0.5s and can subtly delay pan
@@ -284,7 +322,7 @@
                 #if targetEnvironment(macCatalyst)
                     return (delegate as? any TerminalSurfaceTextSelectionRequestDelegate) != nil
                 #else
-                    return activeTextSelectionDelegate != nil
+                    return usesInlineTextSelection || activeTextSelectionDelegate != nil
                 #endif
             }
             return true

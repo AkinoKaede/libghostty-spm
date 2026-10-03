@@ -586,6 +586,7 @@ final class TerminalSurfaceCoordinator {
         // dismisses.
         bridge.denyAllPendingClipboardRequests()
         bridge.rawSurface = nil
+        bridge.scrollbar = nil
         let hadSurface = surface != nil
         surface?.setFocus(false)
         surface?.free()
