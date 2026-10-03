@@ -263,26 +263,6 @@ public protocol TerminalSurfaceScrollbarDelegate: TerminalSurfaceViewDelegate {
     func terminalDidUpdateScrollbar(_ scrollbar: TerminalScrollbar)
 }
 
-/// User long-pressed to request a selection-page presentation.
-public struct TerminalTextSelectionRequest: Sendable {
-    /// Viewport text snapshot. Lines separated by `\n`.
-    public let text: String
-
-    /// Recommended pre-selection range in UTF-16 units, suitable for direct
-    /// assignment to `UITextView.selectedRange`. `nil` means the host should
-    /// `selectAll` instead.
-    public let anchorRange: NSRange?
-
-    /// Long-press point in the terminal view's coordinate space (points).
-    /// Hosts may use this as a popover anchor.
-    public let sourcePoint: CGPoint
-}
-
-@MainActor
-public protocol TerminalSurfaceTextSelectionRequestDelegate: TerminalSurfaceViewDelegate {
-    func terminalDidRequestTextSelection(_ request: TerminalTextSelectionRequest)
-}
-
 /// Notifies a delegate when the underlying ``TerminalSurface`` is created or
 /// torn down. Useful when a consumer needs surface-level APIs (e.g.
 /// ``TerminalSurface/paste(text:)``) reachable from outside the platform view.

@@ -31,41 +31,35 @@
 <h1>Text Selection</h1>
 <nav class="on-this-page" aria-label="On this page">
   <strong>On this page:</strong>
-  <a href="#flow">Flow</a>
-  <a href="#delegate">Delegate</a>
-  <a href="#range">Ranges</a>
+  <a href="#gestures">Gestures</a>
+  <a href="#menus">Menus</a>
+  <a href="#opt-out">Opting out</a>
 </nav>
 
-<p>On iOS, a single-finger long press requests host text selection. GhosttyKit sends a viewport snapshot, a suggested UTF-16 range, and the source point for anchoring UI.</p>
+<p>On iOS, <code>UITerminalView</code> selects text inline by default: it paints a selection overlay over the terminal cells and presents the native edit menu. Mac Catalyst uses pointer selection instead.</p>
 
-<h2 id="flow">Flow</h2>
-<ol>
-<li>The user long-presses the terminal view for 0.5 seconds.</li>
-<li>The view asks Ghostty for a viewport text snapshot and the word under the press point.</li>
-<li><code>TerminalTextSelectionRequest</code> arrives at the delegate.</li>
-<li>The host presents its own UI, commonly a <code>UITextView</code> sheet or popover.</li>
-</ol>
+<h2 id="gestures">Gestures</h2>
+<ul>
+<li>Long press (0.7 seconds) opens the edit menu.</li>
+<li>Double tap selects a word; triple tap selects a row.</li>
+<li>A single tap clears a selection or closes the menu; otherwise it clicks the terminal and toggles the software keyboard.</li>
+<li>With a selection active, one finger drags its handles or extends it; two fingers scroll local history.</li>
+</ul>
 
-<h2 id="delegate">Delegate</h2>
-<pre><code class="language-swift">final class SelectionCoordinator: TerminalSurfaceTextSelectionRequestDelegate {
-    func terminalDidRequestTextSelection(_ request: TerminalTextSelectionRequest) {
-        let textView = UITextView()
-        textView.text = request.text
-
-        if let range = request.anchorRange {
-            textView.selectedRange = range
-        } else {
-            textView.selectAll(nil)
-        }
-
-        presentSelectionUI(textView, sourcePoint: request.sourcePoint)
+<h2 id="menus">Menus</h2>
+<p>Override <code>touchMenuItems(for:)</code> and <code>touchSelectionMenuItems(for:)</code> in a <code>TerminalView</code> subclass to localize, reorder or extend the menu. The default actions carry the identifiers <code>terminal.copy</code>, <code>terminal.paste</code>, <code>terminal.select</code> and <code>terminal.selectAll</code>.</p>
+<pre><code class="language-swift">final class HostTerminalView: TerminalView {
+    override func touchSelectionMenuItems(for context: TerminalTouchSelectionMenuContext) -&gt; [UIMenuElement] {
+        super.touchSelectionMenuItems(for: context) + [
+            UIAction(title: "Share") { _ in share(context.selectedText) },
+        ]
     }
 }
 </code></pre>
 
-<h2 id="range">Ranges</h2>
-<p><code>anchorRange</code> uses UTF-16 units so it can be assigned directly to <code>UITextView.selectedRange</code>. Duplicate words on the same row are disambiguated with the long-press x coordinate and Ghostty cell metrics.</p>
-<p class="muted">Text selection currently supports the in-memory backend and viewport text. To select the full scrollback, present your own selection surface.</p>
+<h2 id="opt-out">Opting out</h2>
+<p>Set <code>usesInlineTextSelection = false</code> to turn touch selection off. A long press then does nothing and a tap only clicks and toggles the keyboard.</p>
+<p class="muted">The long-press sheet API (<code>TerminalTextSelectionRequest</code>, <code>TerminalSurfaceTextSelectionRequestDelegate</code>, <code>TerminalViewState.onTextSelectionRequest</code>) has been removed.</p>
 
 <nav class="pager" aria-label="Sibling pages">
   <a class="prev" href="themes.html">Themes</a>

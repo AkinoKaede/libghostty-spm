@@ -68,7 +68,7 @@ final class ViewController: UIViewController {
 
     private func configureTerminalView() {
         terminalView.delegate = self
-        terminalView.usesInlineTextSelection = !ProcessInfo.processInfo.arguments.contains("--legacy-selection")
+        terminalView.usesInlineTextSelection = !ProcessInfo.processInfo.arguments.contains("--no-inline-selection")
         terminalView.isAccessibilityElement = true
         terminalView.accessibilityIdentifier = "terminal.surface"
         terminalView.accessibilityLabel = "Terminal"
@@ -415,9 +415,7 @@ final class ViewController: UIViewController {
 extension ViewController:
     TerminalSurfaceTitleDelegate,
     TerminalSurfaceCloseDelegate,
-    TerminalSurfaceGridResizeDelegate,
-    TerminalSurfaceTextSelectionRequestDelegate,
-    UIAdaptivePresentationControllerDelegate
+    TerminalSurfaceGridResizeDelegate
 {
     func terminalDidResize(_ size: TerminalGridMetrics) {
         #if DEBUG
@@ -435,29 +433,6 @@ extension ViewController:
 
     func terminalDidClose(processAlive _: Bool) {
         ApplicationExitController.requestExit()
-    }
-
-    func terminalDidRequestTextSelection(_ request: TerminalTextSelectionRequest) {
-        let selectionVC = TerminalSelectionViewController(
-            text: request.text,
-            anchorRange: request.anchorRange
-        )
-        selectionVC.onDone = { [weak self] in
-            self?.terminalView.becomeFirstResponder()
-        }
-        let nav = UINavigationController(rootViewController: selectionVC)
-        nav.modalPresentationStyle = .pageSheet
-        nav.sheetPresentationController?.detents = [.medium(), .large()]
-        nav.sheetPresentationController?.prefersGrabberVisible = true
-        nav.presentationController?.delegate = self
-        present(nav, animated: true)
-    }
-
-    /// Covers the user-gesture (grabber swipe) dismiss path only —
-    /// programmatic dismiss does not trigger this callback, so the Done
-    /// button restores focus via `onDone` instead.
-    func presentationControllerDidDismiss(_: UIPresentationController) {
-        terminalView.becomeFirstResponder()
     }
 }
 

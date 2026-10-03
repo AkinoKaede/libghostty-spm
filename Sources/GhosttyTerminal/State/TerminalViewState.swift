@@ -79,12 +79,6 @@ public final class TerminalViewState: ObservableObject {
         #endif
     #endif
 
-    /// Host hook for the iOS long-press text-selection flow. Setting this is
-    /// the opt-in: while it is `nil` the long-press recognizer stays inactive,
-    /// exactly as if the delegate never adopted
-    /// ``TerminalSurfaceTextSelectionRequestDelegate``.
-    public var onTextSelectionRequest: ((TerminalTextSelectionRequest) -> Void)?
-
     /// Host hook for clipboard decisions ghostty will not make alone: a
     /// program reading the clipboard through OSC 52 (`clipboard-read = ask`,
     /// the default), writing it when `clipboard-write = ask`, or a paste

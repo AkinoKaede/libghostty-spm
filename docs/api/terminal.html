@@ -85,8 +85,6 @@ public final class TerminalViewState: ObservableObject {
     #endif
     #endif
 
-    /// Opt-in for the iOS long-press text-selection flow.
-    public var onTextSelectionRequest: ((TerminalTextSelectionRequest) -&gt; Void)?
     /// Presents OSC 52 reads/writes and flagged pastes; nil denies a
     /// program's request silently and allows a user paste.
     public var onClipboardConfirmationRequest: ((TerminalClipboardConfirmationRequest) -&gt; Void)?
@@ -218,10 +216,6 @@ public final class TerminalController {
 
 @MainActor public protocol TerminalSurfaceCloseDelegate {
     func terminalDidClose(processAlive: Bool)
-}
-
-@MainActor public protocol TerminalSurfaceTextSelectionRequestDelegate {
-    func terminalDidRequestTextSelection(_ request: TerminalTextSelectionRequest)
 }
 
 @MainActor public protocol TerminalSurfaceLifecycleDelegate {

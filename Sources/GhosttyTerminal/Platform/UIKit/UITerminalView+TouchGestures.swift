@@ -16,19 +16,18 @@
                     tap.numberOfTapsRequired = count
                     tap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
                     tap.delegate = self
-                    tap.isEnabled = usesInlineTextSelection
                     addGestureRecognizer(tap)
                     touchSelection.tapRecognizers.append(tap)
                 }
                 touchSelection.tapRecognizers[0].require(toFail: touchSelection.tapRecognizers[1])
                 touchSelection.tapRecognizers[1].require(toFail: touchSelection.tapRecognizers[2])
+                updateTouchSelectionGestures()
             }
 
             func updateTouchSelectionGestures() {
                 for tap in touchSelection.tapRecognizers {
                     tap.isEnabled = usesInlineTextSelection
                 }
-                touchSelection.longPress?.minimumPressDuration = usesInlineTextSelection ? 0.7 : 0.5
                 touchSelection.scrollGesture?.maximumNumberOfTouches = usesInlineTextSelection ? 2 : 1
             }
 

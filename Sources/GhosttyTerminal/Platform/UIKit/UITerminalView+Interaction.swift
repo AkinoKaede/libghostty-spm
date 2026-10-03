@@ -12,10 +12,9 @@
     extension UITerminalView {
         /// How far a finger may wander and still count as a tap.
         static let tapCandidateSlop: CGFloat = 10
-        /// How long a press may last and still count as a tap. Below the
-        /// long-press recognizer's 0.5s so a stationary hold never
-        /// toggles the keyboard even when no selection delegate is
-        /// installed and the recognizer itself refuses to begin.
+        /// How long a press may last and still count as a tap, so a
+        /// stationary hold never toggles the keyboard with inline selection
+        /// off, where the long-press recognizer refuses to begin.
         static let tapCandidateMaxDuration: TimeInterval = 0.35
 
         override open func touchesBegan(
@@ -167,7 +166,7 @@
                     target: self,
                     action: #selector(handleLongPressForSelection(_:))
                 )
-                longPress.minimumPressDuration = 0.5
+                longPress.minimumPressDuration = 0.7
                 longPress.allowableMovement = 10
                 longPress.numberOfTouchesRequired = 1
                 longPress.numberOfTapsRequired = 0
@@ -222,75 +221,14 @@
                 return CGPoint(x: cursor.x, y: cursor.y - cursor.height / 2)
             }
 
-            /// The delegate to hand a long-press selection to, or nil when no
-            /// host opted in. A `TerminalViewState` delegate conforms
-            /// unconditionally, so for SwiftUI hosts the opt-in is its
-            /// `onTextSelectionRequest` closure being set.
-            var activeTextSelectionDelegate: (any TerminalSurfaceTextSelectionRequestDelegate)? {
-                guard let delegate = delegate as? any TerminalSurfaceTextSelectionRequestDelegate else {
-                    return nil
-                }
-                if let state = delegate as? TerminalViewState, state.onTextSelectionRequest == nil {
-                    return nil
-                }
-                return delegate
-            }
-
+            /// Long press opens the touch menu; with inline selection off
+            /// the recognizer never begins (see `gestureRecognizerShouldBegin`).
             @objc func handleLongPressForSelection(
                 _ gesture: UILongPressGestureRecognizer
             ) {
-                guard gesture.state == .began else { return }
+                guard gesture.state == .began, usesInlineTextSelection else { return }
                 softwareKeyboard.tapCandidateArmed = false
-                if usesInlineTextSelection {
-                    presentTouchMenu(at: gesture.location(in: self))
-                    return
-                }
-                guard let delegate = activeTextSelectionDelegate else { return }
-                guard let surface else { return }
-                guard case let .inMemory(session) = configuration.backend else {
-                    TerminalDebugLog.log(.input, "long-press selection ignored: backend not inMemory")
-                    return
-                }
-
-                stopMomentumScrolling()
-
-                let viewPoint = gesture.location(in: self)
-                sendPointerPosition(at: viewPoint)
-
-                let wordResult = surface.quicklookWord()
-
-                guard let text = session.readViewportText() else {
-                    TerminalDebugLog.log(
-                        .input,
-                        "long-press selection aborted: readViewportText returned nil"
-                    )
-                    return
-                }
-
-                var anchorRange: NSRange?
-                if let w = wordResult, !text.isEmpty, let size = surface.size() {
-                    anchorRange = TerminalSelectionAnchor.resolveRange(
-                        in: text,
-                        word: w.word,
-                        offsetStart: w.offsetStart,
-                        columns: UInt32(size.columns)
-                    )
-                }
-
-                TerminalDebugLog.log(
-                    .input,
-                    "long-press selection dispatch viewPoint=\(NSCoder.string(for: viewPoint)) word=\(TerminalDebugLog.describe(wordResult?.word ?? "nil")) anchor=\(anchorRange.map { NSStringFromRange($0) } ?? "nil")"
-                )
-
-                #if !os(visionOS) // no haptics on a headset
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                #endif
-
-                delegate.terminalDidRequestTextSelection(.init(
-                    text: text,
-                    anchorRange: anchorRange,
-                    sourcePoint: viewPoint
-                ))
+                presentTouchMenu(at: gesture.location(in: self))
             }
         #endif
 
@@ -311,19 +249,15 @@
             return true
         }
 
-        /// Gate the long-press recognizer at the gesture layer when no host
-        /// has opted into selection delegate. Without this, the recognizer
-        /// still enters the touch arena for 0.5s and can subtly delay pan
-        /// recognition for hosts that don't want the feature at all.
+        /// Gate the long-press recognizer at the gesture layer while inline
+        /// selection is off (always on Mac Catalyst). Without this, the
+        /// recognizer still enters the touch arena and can subtly delay pan
+        /// recognition for hosts that opted out.
         override open func gestureRecognizerShouldBegin(
             _ gestureRecognizer: UIGestureRecognizer
         ) -> Bool {
             if gestureRecognizer is UILongPressGestureRecognizer {
-                #if targetEnvironment(macCatalyst)
-                    return (delegate as? any TerminalSurfaceTextSelectionRequestDelegate) != nil
-                #else
-                    return usesInlineTextSelection || activeTextSelectionDelegate != nil
-                #endif
+                return usesInlineTextSelection
             }
             return true
         }

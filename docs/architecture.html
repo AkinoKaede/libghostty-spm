@@ -65,7 +65,7 @@ ShellCraftKit   Swift      Sandboxed command engine backed by InMemoryTerminalSe
 <li>Software keyboard text arrives through <code>insertText(_:)</code> and deletion through <code>deleteBackward()</code>.</li>
 <li>Marked text flows through <code>TerminalTextInputHandler</code> and calls Ghostty preedit APIs.</li>
 <li>The accessory bar dispatches terminal keys and sticky Ctrl/Alt/Cmd modifiers.</li>
-<li>Long-press selection requests are delegated to the host with a viewport snapshot.</li>
+<li>Touch selection on iOS is inline: the view paints its own selection overlay and native edit menu.</li>
 </ol>
 
 <h2 id="trimmed-build">Trimmed Build</h2>
