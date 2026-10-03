@@ -10,7 +10,7 @@
         func defaultTouchMenuItems(at point: CGPoint, selecting: Bool) -> [UIMenuElement] {
             let paste = UIAction(
                 title: "Paste",
-                image: UIImage(systemName: "document.on.clipboard"),
+                image: UIImage(systemName: "doc.on.clipboard"),
                 identifier: UIAction.Identifier("terminal.paste")
             ) { [weak self] _ in
                 self?.dismissTouchSelection()

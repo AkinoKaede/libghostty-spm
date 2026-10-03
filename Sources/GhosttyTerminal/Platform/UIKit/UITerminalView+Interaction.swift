@@ -294,17 +294,14 @@
             }
         #endif
 
-        /// Gate the long-press recognizer at the gesture layer when no host
-        /// has opted into selection delegate. Without this, the recognizer
-        /// still enters the touch arena for 0.5s and can subtly delay pan
-        /// recognition for hosts that don't want the feature at all.
+        /// Touches on the selection handles belong to the overlay's own pan
+        /// recognizers. A single tap records, before UIKit can dismiss the
+        /// edit menu, whether it began with the menu open or a fling running.
         public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
             if let overlay = touchSelection.overlay, touch.view?.isDescendant(of: overlay) == true {
                 return false
             }
             if usesInlineTextSelection, gestureRecognizer === touchSelection.tapRecognizers.first {
-                // UIKit may dismiss its menu before the single tap finishes
-                // waiting for double/triple taps to fail.
                 touchSelection.tapBeganWithMenu = isTouchMenuVisible
                 touchSelection.tapStopsMomentum = momentumScroll.displayLink != nil
                 if touchSelection.tapStopsMomentum {
@@ -314,6 +311,10 @@
             return true
         }
 
+        /// Gate the long-press recognizer at the gesture layer when no host
+        /// has opted into selection delegate. Without this, the recognizer
+        /// still enters the touch arena for 0.5s and can subtly delay pan
+        /// recognition for hosts that don't want the feature at all.
         override open func gestureRecognizerShouldBegin(
             _ gestureRecognizer: UIGestureRecognizer
         ) -> Bool {

@@ -98,10 +98,10 @@
         }
 
         func dismissTouchSelection() {
-            stopMomentumScrolling()
             guard touchSelection.range != nil || touchSelection.overlay != nil || isTouchMenuVisible else {
                 return
             }
+            stopMomentumScrolling()
             touchSelection.scrollTask?.cancel()
             touchSelection.scrollTask = nil
             touchSelection.overlay?.removeFromSuperview()
