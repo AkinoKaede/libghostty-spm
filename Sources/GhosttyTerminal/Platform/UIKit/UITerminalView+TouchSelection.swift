@@ -58,7 +58,6 @@
             let cell = grid.cell(at: point, viewportOffset: touchViewportOffset)
             let total = max(grid.rows, Int(core.bridge.scrollbar?.total ?? UInt64(grid.rows)))
             let range: ClosedRange<Int>
-            var selectsRows = selectLine
             if selectAll {
                 guard let last = surface.lastTextCell(rows: total, columns: grid.columns) else { return }
                 range = 0 ... last
@@ -75,10 +74,10 @@
                     let visibleRows = touchViewportOffset ..< min(total, touchViewportOffset + grid.rows)
                     guard let row = surface.nearestTextRow(
                         to: cell / grid.columns, in: visibleRows, columns: grid.columns
-                    ) else { return }
-                    let start = row * grid.columns
-                    range = start ... (start + grid.columns - 1)
-                    selectsRows = true
+                    ), let textCells = surface.textCells(inRow: row, columns: grid.columns) else { return }
+                    // Seed a character selection from the nearest row's text;
+                    // both handles must remain free to move within that row.
+                    range = textCells
                 }
             }
             guard let text = surface.readCells(range, columns: grid.columns)?.text, !text.isEmpty else { return }
@@ -91,7 +90,7 @@
             touchSelection.surface = surface
             touchSelection.text = text
             touchSelection.pivot = surface.glyphCells(at: range.lowerBound, columns: grid.columns)
-            touchSelection.selectsRows = selectsRows
+            touchSelection.selectsRows = selectLine
             touchSelection.menuPoint = point
             let overlay = TerminalTouchSelectionOverlay(frame: bounds)
             overlay.onDrag = { [weak self] endpoint, gesture in self?.dragTouchSelection(endpoint, gesture: gesture) }

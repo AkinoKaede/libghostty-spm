@@ -79,6 +79,41 @@ struct TerminalTouchSelectionTests {
         #expect(surface.nearestTextRow(to: 5, in: 5 ..< rows.upperBound, columns: columns) == nil)
     }
 
+    @Test func rowTextExcludesSurroundingWhitespaceAndPreservesGlyphBoundaries() async throws {
+        let harness = await GhosttySurfaceHarness.make()
+        defer { harness.tearDown() }
+        let surface = try #require(harness.surface)
+        let columns = try Int(#require(surface.size()).columns)
+        harness.receive("\u{1B}[2J\u{1B}[H   你好你好  e\u{301} 😀   \r\n  \t \r\n😀 tail  ")
+        let first = try #require(surface.textCells(inRow: 0, columns: columns))
+        #expect(first == 3 ... 16)
+        #expect(surface.readCells(first, columns: columns)?.text == "你好你好  e\u{301} 😀")
+        #expect(surface.textCells(inRow: 1, columns: columns) == nil)
+        let last = try #require(surface.textCells(inRow: 2, columns: columns))
+        #expect(last == (2 * columns) ... (2 * columns + 6))
+        #expect(surface.readCells(last, columns: columns)?.text == "😀 tail")
+        #expect(surface.textCells(inRow: 3, columns: columns) == nil)
+    }
+
+    @Test func rowTextKeepsFullRowsAndAbsoluteHistoryCoordinates() async throws {
+        let harness = await GhosttySurfaceHarness.make()
+        defer { harness.tearDown() }
+        let surface = try #require(harness.surface)
+        let metrics = try #require(surface.size())
+        let columns = Int(metrics.columns)
+        let rows = Int(metrics.rows)
+        let fullRow = String(repeating: "x", count: columns)
+        harness.receive("\u{1B}[2J\u{1B}[H" + fullRow + "\r\n" + String(repeating: "  你好  \r\n", count: rows * 2))
+        #expect(surface.textCells(inRow: 0, columns: columns) == 0 ... (columns - 1))
+        for row in [1, rows, rows * 2] {
+            let range = try #require(surface.textCells(inRow: row, columns: columns))
+            #expect(range == (row * columns + 2) ... (row * columns + 5))
+            #expect(surface.readCells(range, columns: columns)?.text == "你好")
+        }
+        #expect(surface.scrollToRow(1))
+        #expect(surface.textCells(inRow: 0, columns: columns) == 0 ... (columns - 1))
+    }
+
     @Test func selectAllStopsAfterContentAndKeepsBothCellsOfTheLastGlyph() async throws {
         let harness = await GhosttySurfaceHarness.make()
         defer { harness.tearDown() }
