@@ -1,0 +1,74 @@
+name: Sync Termind Fork
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: sync-termind-fork
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'AkinoKaede/libghostty-spm'
+    runs-on: macos-26
+    timeout-minutes: 300
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      WORKFLOW_REF: upstream-sync
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: termind
+          fetch-depth: 0
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+
+      - name: Test Sync Boundaries
+        run: python3 Script/test-upstream-sync.py
+
+      - name: Prepare Rebase
+        id: rebase
+        run: ./Script/prepare-upstream-sync.sh
+
+      - name: Publish Candidate
+        if: steps.rebase.outputs.changed == 'true'
+        run: |
+          git push --force-with-lease origin HEAD:refs/heads/upstream-sync
+
+      - name: Build Native Binary If Needed
+        if: steps.rebase.outputs.changed == 'true'
+        run: ./Script/dispatch-workflow.sh build.yml
+
+      - name: Test and Release Package
+        if: steps.rebase.outputs.changed == 'true'
+        env:
+          UPSTREAM_PACKAGE_TAG: ${{ steps.rebase.outputs.package_tag }}
+        run: |
+          git fetch --tags origin
+          VERSION=$(git tag --list | python3 Script/next-package-version.py "$UPSTREAM_PACKAGE_TAG")
+          ./Script/dispatch-workflow.sh release.yml -f "package_version=$VERSION"
+
+      - name: Promote Verified Release
+        if: steps.rebase.outputs.changed == 'true'
+        env:
+          PREVIOUS: ${{ steps.rebase.outputs.previous }}
+          UPSTREAM: ${{ steps.rebase.outputs.upstream }}
+        run: |
+          git fetch origin upstream-sync
+          git merge-base --is-ancestor "$UPSTREAM" FETCH_HEAD
+          CANDIDATE=$(git rev-parse FETCH_HEAD)
+          git push --atomic \
+            --force-with-lease="refs/heads/termind:$PREVIOUS" \
+            --force-with-lease="refs/heads/upstream-sync:$CANDIDATE" \
+            origin "$CANDIDATE:refs/heads/termind" :refs/heads/upstream-sync
+          echo "Rebased termind onto $UPSTREAM and published the tested package." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report Failure
+        if: failure()
+        run: |
+          echo 'Sync stopped. The termind branch was not promoted. Inspect the failed rebase/build/release step and the upstream-sync candidate before retrying.' >> "$GITHUB_STEP_SUMMARY"

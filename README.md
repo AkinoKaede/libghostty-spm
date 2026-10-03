@@ -345,3 +345,31 @@ backtracking and match counts are bounded. At most 64 rules are accepted, each
 with at most 16,384 bytes of compiled pattern. The native repeatable config key is
 `keyword-highlight = foreground,background:regex` (six hex digits or `-` for each channel); an empty value resets it. This API requires the
 XCFramework built with `0019-keyword-highlighting.sh`.
+
+### Termind fork synchronization
+
+`Sync Termind Fork` checks the newest stable semantic version tag in
+`Lakr233/libghostty-spm` daily at 02:00 UTC and can also be dispatched manually.
+It ignores untagged main commits and skips synchronization when that tag is
+already an ancestor of `termind`, including when the fork is ahead. Upstream
+tags are fetched without importing them into the fork’s version namespace. It rebases onto a disposable candidate,
+retaining the keyword-highlighting patch and host menu regression tests.
+Source conflicts stop the run; only generated binary URL/checksum and asset
+revision metadata are regenerated. Package versions follow the upstream release series, advancing the fork patch
+when its version is already ahead to avoid reusing a published tag.
+Native input changes receive a fresh
+XCFramework tag, while Swift-only changes reuse the current binary.
+
+The existing release workflow verifies the binary consumer, builds the platform
+matrix and runs Swift tests before the candidate replaces `termind`. An atomic
+push advances `termind` and removes the temporary `upstream-sync` branch, with
+explicit leases on both refs. A failure leaves `termind` unchanged and is reported
+in GitHub Actions; `upstream-sync` retains a candidate when one was pushed.
+The inherited weekly Ghostty-engine updater runs only in the upstream repository.
+Termind app dependency pins are updated separately after a successful package release.
+
+Configure the repository Actions secret `UPSTREAM_SYNC_TOKEN` with a fine-grained
+personal access token limited to this repository, with **Contents** and
+**Workflows** read/write permissions. Checkout uses it for Git pushes so rebasing
+upstream workflow changes is allowed; the default `GITHUB_TOKEN` still dispatches
+the build and release workflows using its existing Actions permission.
