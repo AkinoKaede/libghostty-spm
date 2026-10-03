@@ -99,6 +99,16 @@
             CATransaction.commit()
         }
 
+        /// The highlight and both visible handles, knobs included. The edit
+        /// menu is placed outside this rect so it never covers a handle.
+        var menuAvoidanceRect: CGRect? {
+            var rect = highlight.path?.boundingBoxOfPath ?? .null
+            for handle in [startHandle, endHandle] where !handle.isHidden {
+                rect = rect.union(handle.frame)
+            }
+            return rect.isNull ? nil : rect.intersection(bounds)
+        }
+
         @objc private func drag(_ gesture: UIPanGestureRecognizer) {
             onDrag?(gesture.view === startHandle ? .start : .end, gesture)
         }

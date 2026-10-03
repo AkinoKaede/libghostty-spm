@@ -474,7 +474,10 @@ extend. The contexts carry `systemMenuItems`, and the default return values incl
 those system menus after the terminal actions. The host's final return value is
 presented as-is; the wrapper does not append AutoFill again. Preserve returned
 elements unchanged; the host owns grouping, ordering and separators. Paste remains
-on `pasteFromPasteboard`. The example UI tests cover
+on `pasteFromPasteboard`. While a selection is active the menu targets the
+whole highlight plus both handles (`touchMenuTargetRect`, the edit-menu
+delegate's `targetRectFor`), so UIKit places it clear of the selection —
+pointed at the touch it covered the lower handle and nothing could drag it. The example UI tests cover
 the gesture and menu contracts.
 
 The following legacy path applies when the inline mode is disabled.
@@ -654,7 +657,18 @@ Two release tracks, decoupled since 1.4.0:
   `Example/MobileGhosttyApp` (iOS 16+, iPhone and iPad, Catalyst enabled,
   sandboxed by the platform); each has a `*UITests` target, and ui-tests.yml
   runs them on PRs as four jobs (iPhone and iPad simulators, Mac Catalyst,
-  macOS AppKit)
+  macOS AppKit). The simulator jobs run `Script/test-ui-simulator.sh
+  <iPhone|iPad> <result-prefix>` — run the same script locally. It creates a
+  throwaway simulator and pins its settings first (English, the US QWERTY
+  keyboard alone, no autocorrection, prediction, smart punctuation or
+  slide-to-type tip), because a Chinese host or a Pinyin keyboard changes
+  the keys and menu titles the tests look for; the tests also launch the
+  app with `-AppleLanguages (en)`. It runs the suite with inline selection
+  off, then on, then each test that presses XCTest's hardware keyboard
+  (`HARDWARE_KEY_TESTS`) alone on a fresh boot: after one hardware key
+  press the software keyboard stays hidden for the rest of the boot, and
+  every later software-keyboard test fails. A new test that calls
+  `typeKey` belongs in that list
 - Apps run in **App Sandbox** (`ENABLE_APP_SANDBOX = YES` in both projects)
   — must NOT spawn subprocesses (non-negotiable)
 - Use simulated terminal IO with the real GhosttyTerminal surface/view layer:

@@ -76,6 +76,16 @@
             }
         }
 
+        /// Where the edit menu points: the whole selection with its handles
+        /// while one is active, so UIKit places the menu above or below it
+        /// instead of over the handle the user is about to drag.
+        func touchMenuTargetRect(at point: CGPoint) -> CGRect {
+            if touchSelection.range != nil, let rect = touchSelection.overlay?.menuAvoidanceRect, !rect.isEmpty {
+                return rect
+            }
+            return CGRect(origin: point, size: CGSize(width: 1, height: 1))
+        }
+
         private func presentLegacyTouchMenu(at point: CGPoint) {
             // UIMenuController requires a first responder. A plain view routes
             // actions through its superview without opening the terminal keyboard.
@@ -89,7 +99,7 @@
             }
             let menu = UIMenuController.shared
             menu.menuItems = nil
-            menu.showMenu(from: self, rect: CGRect(origin: point, size: CGSize(width: 1, height: 1)))
+            menu.showMenu(from: self, rect: touchMenuTargetRect(at: point))
             menu.update()
         }
     }
@@ -117,6 +127,13 @@
             guard let action = touchSelection.pendingAction else { return }
             touchSelection.pendingAction = nil
             animator.addCompletion(action)
+        }
+
+        public func editMenuInteraction(
+            _: UIEditMenuInteraction,
+            targetRectFor configuration: UIEditMenuConfiguration
+        ) -> CGRect {
+            touchMenuTargetRect(at: configuration.sourcePoint)
         }
 
         public func editMenuInteraction(
