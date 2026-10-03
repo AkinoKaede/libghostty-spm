@@ -563,13 +563,17 @@ Two release tracks, decoupled since 1.4.0:
   and `0017-zig-pkg-apple-targets.sh` give it the iOS arms in Ghostty and
   in the Zig packages (libxev, aro) under `<source>/zig-pkg/`.
 - **Bare semver tags (1.4.0+) are Swift package releases** and follow their
-  own sequence, independent of upstream's. Since 1.5.2 the version is
-  `<major.minor>.<UTC YYYYMMDD>` (`1.5.20260903`): the patch is the release
-  date, so a `from:` pin takes every weekly release, and major.minor moves
-  only when someone passes a version by hand. A second release on one UTC
-  day takes the latest patch + 1 instead (a hand release at 03:00 on
-  2026-09-28 made that day's weekly refuse an existing tag), so the patch
-  can read a day or two ahead of the calendar. The "Release Package"
+  own sequence, independent of upstream's. Since 2.2.2026100302 the
+  version is `<major.minor>.<UTC YYYYMMDD><NN>` (`2.2.2026100401`): the
+  patch is the release date plus that day's two-digit revision, 01 first,
+  so a `from:` pin takes every weekly release, a day can hold several
+  releases without borrowing tomorrow's date, and major.minor moves only
+  when someone passes a version by hand. From 1.5.2 through 2.2.20261003
+  the patch was the bare date (`1.5.20260903`), and a second release on
+  one day took the latest patch + 1, so those can read a day or two ahead
+  of the calendar; release.yml counts a bare-date patch as that day's 01.
+  Every version from now on keeps all ten digits: a bare date would sort
+  below an earlier day's dated revision. The "Release Package"
   workflow (release.yml, dispatch; `package_version` optional, derived
   from the latest tag when empty) never runs Zig: it refuses a version
   that is not newer than the latest semver tag, requires the storage

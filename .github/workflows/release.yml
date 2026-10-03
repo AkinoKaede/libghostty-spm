@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       package_version:
-        description: "Package version to publish. Empty derives <latest major.minor>.<UTC YYYYMMDD>; pass one to move major or minor, or for a second release on one day."
+        description: "Package version to publish. Empty derives <latest major.minor>.<UTC YYYYMMDD><NN> (NN: that day's revision, 01 first); pass one to move major or minor."
         required: false
         type: string
 
@@ -49,21 +49,41 @@ jobs:
               python3 -c 'import re, sys; versions = [tuple(int(part) for part in tag.split(".")) for tag in (line.strip() for line in sys.stdin) if re.fullmatch(r"\d+\.\d+\.\d+", tag)]; print(".".join(map(str, max(versions))), end="") if versions else None'
           )
 
-          # Package versions are <major.minor>.<UTC YYYYMMDD>: the patch is
-          # a date, so every weekly release is a compatible update for a
-          # `from:` pin, and major.minor moves only by hand. A second release
-          # on one UTC day takes the next patch, which reads as tomorrow.
+          # Package versions are <major.minor>.<UTC YYYYMMDD><NN>: the patch
+          # is the release date plus a two-digit revision for that day, 01
+          # first, so every weekly release is a compatible update for a
+          # `from:` pin and major.minor moves only by hand. A patch from
+          # before 2.2.2026100302 is a bare date and counts as that day's 01.
+          # Always ten digits from then on: a bare date would sort below an
+          # earlier day's dated revision.
           if [ -z "$PACKAGE_VERSION" ]; then
             if [ -z "$LATEST_PACKAGE_VERSION" ]; then
               echo "[!] no package tag to derive major.minor from; pass package_version"
               exit 1
             fi
             TODAY=$(date -u +%Y%m%d)
-            NEXT_PATCH=$((${LATEST_PACKAGE_VERSION##*.} + 1))
-            PACKAGE_VERSION="${LATEST_PACKAGE_VERSION%.*}.$((TODAY > NEXT_PATCH ? TODAY : NEXT_PATCH))"
+            LATEST_PATCH=${LATEST_PACKAGE_VERSION##*.}
+            case ${#LATEST_PATCH} in
+            8) LATEST_DAY=$LATEST_PATCH LATEST_REVISION=1 ;;
+            10) LATEST_DAY=${LATEST_PATCH:0:8} LATEST_REVISION=$((10#${LATEST_PATCH:8})) ;;
+            *) LATEST_DAY=0 LATEST_REVISION=0 ;;
+            esac
+            if [ "$LATEST_DAY" -gt "$TODAY" ]; then
+              echo "[!] latest package $LATEST_PACKAGE_VERSION is dated after today; pass package_version"
+              exit 1
+            fi
+            REVISION=1
+            if [ "$LATEST_DAY" -eq "$TODAY" ]; then
+              REVISION=$((LATEST_REVISION + 1))
+            fi
+            if [ "$REVISION" -gt 99 ]; then
+              echo "[!] 99 releases on $TODAY already; pass package_version"
+              exit 1
+            fi
+            PACKAGE_VERSION="${LATEST_PACKAGE_VERSION%.*}.$TODAY$(printf '%02d' "$REVISION")"
           fi
           if ! echo "$PACKAGE_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "[!] package_version must be semantic, for example 1.5.20260903: $PACKAGE_VERSION"
+            echo "[!] package_version must be semantic, for example 2.2.2026100401: $PACKAGE_VERSION"
             exit 1
           fi
           if git rev-parse "refs/tags/$PACKAGE_VERSION" >/dev/null 2>&1; then

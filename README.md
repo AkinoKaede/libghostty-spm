@@ -255,10 +255,13 @@ was removed.
 Pin `1.5.2` or later (`from: "1.5.2"`). The `1.4.0` … `1.4.13` and `1.5.0`
 tags and releases were withdrawn and no longer exist; `1.5.1` is the
 oldest live tag on this track and the first with visionOS slices. Versions
-after `1.5.2` are `<major.minor>.<UTC YYYYMMDD>` (`1.5.20260903`): a
+since `2.2.2026100302` are `<major.minor>.<UTC YYYYMMDD><NN>`
+(`2.2.2026100401`), where `NN` counts that day's releases from `01`;
+from `1.5.2` through `2.2.20261003` the patch was the bare date
+(`1.5.20260903`). In both, a
 release lands every week with Ghostty pinned to upstream main's head of
 that Monday (`Ghostty.ref`, a commit rather than a release, because
-upstream tags rarely and main carries the fixes we need), the date is the
+upstream tags rarely and main carries the fixes we need), the date leads the
 patch number so a `from:` pin takes each one, and major.minor moves only
 for a breaking change to this package's API. Package tags are cut by the
 "Release Package" workflow only; `Script/audit-releases.sh` checks every
