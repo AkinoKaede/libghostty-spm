@@ -86,8 +86,10 @@ final class GhosttySurfaceHarness {
         session.waitForPendingOutput()
 
         let marker = Data("\u{1B}[?62;22".utf8)
+        // An upper bound, not a wait: the loop returns as soon as the reply
+        // lands. A loaded CI runner took longer than 2 s for one.
         let clock = ContinuousClock()
-        let deadline = clock.now + .seconds(2)
+        let deadline = clock.now + .seconds(15)
         while clock.now < deadline {
             let bytes = outbound.bytes
             if let reply = bytes.range(of: marker) {
