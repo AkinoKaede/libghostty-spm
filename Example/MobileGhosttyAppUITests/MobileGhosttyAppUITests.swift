@@ -33,6 +33,11 @@ import XCTest
             launchApp()
         }
 
+        /// Comfortably past the 0.7 s long-press recognizer. A loaded runner
+        /// can shorten a synthesized press, and at 0.8 s an iPad press ended
+        /// as a single tap: no menu, and the keyboard toggled away.
+        private static let longPressDuration: TimeInterval = 1.2
+
         /// Pins the app to English so menu titles and key labels match the
         /// strings below on any host language (a Chinese system localizes
         /// UIKit's edit menu and the keyboard's Space and Return keys).
@@ -390,7 +395,7 @@ import XCTest
                 let terminal = try requireTerminalInteractionTarget()
                 waitForOutputLine("touch-copy-ready")
                 requireSoftwareKeyboard(in: terminal)
-                pointerCell(in: terminal, column: 4).press(forDuration: 0.8)
+                pointerCell(in: terminal, column: 4).press(forDuration: Self.longPressDuration)
                 XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
                 app.menuItems["Select"].tap()
                 XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
@@ -423,7 +428,10 @@ import XCTest
                     launchApp()
                     let terminal = try requireTerminalInteractionTarget()
                     waitForOutputLine("touch-copy-ready")
-                    pointerCell(in: terminal, column: 4).press(forDuration: 0.8)
+                    // Before the copy: raising the keyboard can type through
+                    // XCTest, which replaces the pasteboard.
+                    requireSoftwareKeyboard(in: terminal)
+                    pointerCell(in: terminal, column: 4).press(forDuration: Self.longPressDuration)
                     XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
                     app.menuItems["Select"].tap()
                     XCTAssertTrue(app.menuItems["Send Key"].waitForExistence(timeout: 4))
@@ -432,7 +440,6 @@ import XCTest
                     XCTAssertFalse(app.menuItems["Copy"].exists)
 
                     // A public key spends an armed modifier exactly once.
-                    requireSoftwareKeyboard(in: terminal)
                     tapSoftwareKeys("echo x")
                     waitForViewport("ordinary software keys committed") {
                         Self.outputLines(of: $0).last?.hasSuffix("% echo x") == true
@@ -452,7 +459,7 @@ import XCTest
                 waitForOutputLine("touch-copy-ready")
                 for input in ["arrow", "control", "escape"] {
                     let point = pointerCell(in: terminal, column: 4)
-                    point.press(forDuration: 0.8)
+                    point.press(forDuration: Self.longPressDuration)
                     XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
                     app.menuItems["Select"].tap()
                     XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
@@ -464,7 +471,7 @@ import XCTest
                     XCTAssertTrue(app.menuItems["Copy"].waitForNonExistence(timeout: 4))
                     // Reopening must offer Select: dismissing the menu alone
                     // would retain the range and offer Copy again.
-                    point.press(forDuration: 0.8)
+                    point.press(forDuration: Self.longPressDuration)
                     XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
                     XCTAssertFalse(app.menuItems["Copy"].exists)
                     terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.9)).tap()
@@ -475,7 +482,7 @@ import XCTest
                 let terminal = try requireTerminalInteractionTarget()
                 typeTerminalText("clear\necho touch-copy-ready\n", in: terminal)
                 waitForOutputLine("touch-copy-ready")
-                pointerCell(in: terminal, column: 4).press(forDuration: 0.8)
+                pointerCell(in: terminal, column: 4).press(forDuration: Self.longPressDuration)
                 XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
                 app.menuItems["Select"].tap()
                 XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
@@ -513,7 +520,7 @@ import XCTest
                     }
 
                     for action in ["Select", "Select All"] {
-                        word.press(forDuration: 0.8)
+                        word.press(forDuration: Self.longPressDuration)
                         XCTAssertTrue(app.menuItems[action].waitForExistence(timeout: 4))
                         XCTAssertFalse(app.keyboards.firstMatch.exists)
                         app.menuItems[action].tap()
@@ -561,11 +568,14 @@ import XCTest
                 XCTAssertTrue(app.menuItems["Copy"].waitForNonExistence(timeout: 4))
                 let copied = try XCTUnwrap(copiedSelectionText(in: terminal, timeout: 3))
                 XCTAssertEqual(copied, "touch-copy-ready")
-                typeTerminalText("echo ", in: terminal)
+                // XCTest's typeText can deliver through the pasteboard and
+                // would replace the copy; hardware keys never touch it.
+                for key in ["e", "c", "h", "o", XCUIKeyboardKey.space.rawValue] {
+                    app.typeKey(key, modifierFlags: [])
+                }
                 app.typeKey("v", modifierFlags: .command)
-                typeTerminalText("\n", in: terminal)
-                waitForViewport("pasted touch selection") {
-                    Self.outputLines(of: $0).filter { $0 == copied }.count == 2
+                waitForViewport("touch selection pasted at the prompt") {
+                    Self.outputLines(of: $0).last?.hasSuffix("% echo \(copied)") == true
                 }
             }
 
@@ -608,7 +618,7 @@ import XCTest
                 launchApp()
                 let terminal = try requireTerminalInteractionTarget()
                 typeTerminalText("echo menu-priority\n", in: terminal)
-                terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.15)).press(forDuration: 0.8)
+                terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.15)).press(forDuration: Self.longPressDuration)
                 XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
                 terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.8)).tap()
                 XCTAssertFalse(app.menuItems["Select"].exists)
@@ -627,7 +637,7 @@ import XCTest
                 typeTerminalText("echo inline-selection 你好\n", in: terminal)
                 waitForOutputLine("inline-selection 你好")
                 let point = pointerCell(in: terminal, column: 4)
-                point.press(forDuration: 0.8)
+                point.press(forDuration: Self.longPressDuration)
                 XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4), app.debugDescription)
                 XCTAssertTrue(app.menuItems["Select All"].exists)
                 XCTAssertTrue(app.menuItems["Paste"].exists)
@@ -650,7 +660,7 @@ import XCTest
                 app.menuItems["Copy"].tap()
                 XCTAssertEqual(copiedSelectionText(in: terminal, timeout: 2), "inline-selection 你好")
                 // Select again after Copy clears the selection, then expand and Select All.
-                point.press(forDuration: 0.8)
+                point.press(forDuration: Self.longPressDuration)
                 XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
                 app.menuItems["Select"].tap()
                 XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
@@ -671,7 +681,7 @@ import XCTest
                         .last { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
                 )
                 // Select from empty space below the prompt, then copy the nearest text row.
-                terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.8)).press(forDuration: 0.8)
+                terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.8)).press(forDuration: Self.longPressDuration)
                 XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
                 app.menuItems["Select"].tap()
                 XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
@@ -691,7 +701,7 @@ import XCTest
                 typeTerminalText("clear\n", in: terminal)
                 typeTerminalText("echo inline-selection\n", in: terminal)
                 let point = terminal.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.025))
-                point.press(forDuration: 0.8)
+                point.press(forDuration: Self.longPressDuration)
                 XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
                 XCTAssertFalse(app.menuItems["Paste"].exists)
                 XCTAssertTrue(revealNativeMenuItem("Host Action").waitForExistence(timeout: 4))
@@ -700,7 +710,7 @@ import XCTest
                 try assertSuppliedSystemMenuIsVisible()
                 revealNativeMenuItem("Host Action").tap()
                 XCTAssertEqual(terminal.value as? String, "host:none")
-                point.press(forDuration: 0.8)
+                point.press(forDuration: Self.longPressDuration)
                 XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
                 app.menuItems["Select"].tap()
                 XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
@@ -779,11 +789,13 @@ import XCTest
 
             func testInlineSelectionScrollsAtBothEdgesAndCopiesHistory() throws {
                 app.terminate()
-                app.launchArguments = ["--ui-testing"]
+                // The app writes the 45 commands itself: XCTest types a string
+                // this long key by key whenever the keyboard is down, slower
+                // than the test waits, and returns before it has all arrived.
+                app.launchArguments = ["--ui-testing", "--ui-testing-history-fixture"]
                 launchApp()
                 let terminal = try requireTerminalInteractionTarget()
-                let commands = (0 ..< 45).map { String(format: "echo history-%03d left middle right\n", $0) }.joined()
-                typeTerminalText("clear\n" + commands, in: terminal)
+                waitForOutputLine("history-044 left middle right")
                 let output = app.descendants(matching: .any)["terminal.output"].firstMatch
                 func rows(in text: String) -> [Int] {
                     text.components(separatedBy: "history-").dropFirst().compactMap { Int($0.prefix(3)) }
@@ -1042,7 +1054,7 @@ import XCTest
         #endif
 
         private func longPressTerminal(in element: XCUIElement, offset: CGVector? = nil) {
-            element.coordinate(withNormalizedOffset: offset ?? terminalInteractionOffset).press(forDuration: 0.8)
+            element.coordinate(withNormalizedOffset: offset ?? terminalInteractionOffset).press(forDuration: Self.longPressDuration)
         }
 
         #if targetEnvironment(macCatalyst)
@@ -1076,15 +1088,25 @@ import XCTest
             }
 
             /// The fixture's first responder raises the keyboard, but on a
-            /// loaded runner it can arrive after the first query or not at
-            /// all; a tap on the terminal is how a user would bring it up.
+            /// loaded runner it can arrive late or not at all. On an iPad the
+            /// simulator can start with only the accessory bar up, as if a
+            /// hardware keyboard were attached, until XCTest first types; a
+            /// tap cannot fix that, since it toggles the focused terminal's
+            /// keyboard away. So: a typed space and its deletion while the
+            /// terminal is focused (the shell line ends unchanged), a tap only
+            /// while it is not. That typing can replace the pasteboard, so call
+            /// this before a copy, never between a copy and its paste.
             private func requireSoftwareKeyboard(in terminal: XCUIElement) {
                 let hittable = NSPredicate(format: "isHittable == true")
                 for attempt in 0 ..< 3 {
                     let shown = XCTNSPredicateExpectation(predicate: hittable, object: app.keys["c"])
                     if XCTWaiter.wait(for: [shown], timeout: 4) == .completed { return }
                     guard attempt < 2 else { break }
-                    tapTerminal(in: terminal)
+                    if app.buttons["Command"].isHittable {
+                        terminal.typeText(" " + XCUIKeyboardKey.delete.rawValue)
+                    } else {
+                        tapTerminal(in: terminal)
+                    }
                 }
                 XCTFail("Software keyboard never appeared")
             }

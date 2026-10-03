@@ -213,6 +213,10 @@ final class ViewController: UIViewController {
             if ProcessInfo.processInfo.arguments.contains("--ui-testing-copy-fixture") {
                 shellSession.terminalSession.sendInput(Data("clear\recho touch-copy-ready\r".utf8))
             }
+            if ProcessInfo.processInfo.arguments.contains("--ui-testing-history-fixture") {
+                let commands = (0 ..< 45).map { String(format: "echo history-%03d left middle right\r", $0) }
+                shellSession.terminalSession.sendInput(Data(("clear\r" + commands.joined()).utf8))
+            }
         #endif
     }
 

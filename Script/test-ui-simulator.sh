@@ -7,7 +7,8 @@
 # The simulator is created for the run and deleted after it, and its system
 # settings are pinned before the first test: English language and region, the
 # US QWERTY keyboard alone, and no autocorrection, prediction, smart
-# punctuation or slide-to-type tip. A host in another language (a Chinese
+# punctuation or slide-to-type tip, and the app may paste from other apps
+# without asking. A host in another language (a Chinese
 # system localizes the edit menu and the keyboard's keys) or a simulator left
 # with a Pinyin keyboard would otherwise change what the tests type and tap.
 #
@@ -75,6 +76,16 @@ pin_settings() {
     "${defaults[@]}" com.apple.Preferences DidShowContinuousPathIntroduction -bool YES
 }
 
+# The suite pastes what XCTest's typing left on the pasteboard, and a paste
+# from another app asks first, in a remote alert XCTest cannot reach. Grant
+# the app "Paste from Other Apps" (Settings stores it in TCC) while shut down.
+allow_paste() {
+    xcrun simctl shutdown "$UDID" >/dev/null 2>&1 || true
+    sqlite3 "$HOME/Library/Developer/CoreSimulator/Devices/$UDID/data/Library/TCC/TCC.db" \
+        "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, flags)
+         VALUES ('kTCCServicePasteboard', 'wiki.qaq.MobileGhosttyApp', 0, 2, 2, 1, 0);"
+}
+
 STATUS=0
 run_tests() {
     local name="$1" inline="$2"
@@ -104,6 +115,7 @@ xcodebuild "${XCODEBUILD[@]}" build-for-testing
 
 boot_fresh
 pin_settings
+allow_paste
 
 SKIP=()
 for test in "${HARDWARE_KEY_TESTS[@]}"; do

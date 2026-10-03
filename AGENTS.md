@@ -675,7 +675,9 @@ Two release tracks, decoupled since 1.4.0:
   <iPhone|iPad> <result-prefix>` — run the same script locally. It creates a
   throwaway simulator and pins its settings first (English, the US QWERTY
   keyboard alone, no autocorrection, prediction, smart punctuation or
-  slide-to-type tip), because a Chinese host or a Pinyin keyboard changes
+  slide-to-type tip; and "Paste from Other Apps" allowed through the
+  simulator's TCC database, since the paste prompt is a remote alert XCTest
+  cannot tap), because a Chinese host or a Pinyin keyboard changes
   the keys and menu titles the tests look for; the tests also launch the
   app with `-AppleLanguages (en)`. It runs the suite with inline selection
   off (`LIBGHOSTTY_INLINE_SELECTION=0`, which launches the app with
@@ -683,7 +685,12 @@ Two release tracks, decoupled since 1.4.0:
   (`HARDWARE_KEY_TESTS`) alone on a fresh boot: after one hardware key
   press the software keyboard stays hidden for the rest of the boot, and
   every later software-keyboard test fails. A new test that calls
-  `typeKey` belongs in that list
+  `typeKey` belongs in that list. Long presses use `longPressDuration` (1.2 s): at 0.8 s, so close to the
+  recognizer's 0.7 s, a loaded iPad runner ended one as a single tap. An
+  iPad simulator can start with only the accessory bar up, as if a hardware
+  keyboard were attached, until XCTest first types; `requireSoftwareKeyboard`
+  types a space and deletes it to bring the keys up, because a tap toggles
+  the focused terminal's keyboard away
 - Apps run in **App Sandbox** (`ENABLE_APP_SANDBOX = YES` in both projects)
   — must NOT spawn subprocesses (non-negotiable)
 - Use simulated terminal IO with the real GhosttyTerminal surface/view layer:
