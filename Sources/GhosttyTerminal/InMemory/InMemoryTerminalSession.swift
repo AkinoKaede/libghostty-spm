@@ -104,8 +104,8 @@ public final class InMemoryTerminalSession: @unchecked Sendable {
     /// Each row is its own read, `(VIEWPORT, EXACT (0, y))` to
     /// `(VIEWPORT, EXACT (columns - 1, y))`: a single read over the whole
     /// viewport unwraps a soft-wrapped row into its neighbour's line, and
-    /// `TerminalSelectionAnchor` indexes these lines by viewport row. This
-    /// reads exactly the visible rows and ignores scrollback. Empty viewports
+    /// callers index these lines by viewport row. This reads exactly the
+    /// visible rows and ignores scrollback. Empty viewports
     /// return an empty string.
     ///
     /// Thread-safe: keeps the surface alive for the duration of the read,

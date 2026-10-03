@@ -23,8 +23,8 @@ import XCTest
             }
             app = XCUIApplication()
             app.launchArguments = ["--ui-testing"]
-            if ProcessInfo.processInfo.environment["LIBGHOSTTY_INLINE_SELECTION"] != "1" {
-                app.launchArguments.append("--legacy-selection")
+            if ProcessInfo.processInfo.environment["LIBGHOSTTY_INLINE_SELECTION"] == "0" {
+                app.launchArguments.append("--no-inline-selection")
             }
             installSystemAlertHandler()
             #if !targetEnvironment(macCatalyst)
@@ -631,7 +631,6 @@ import XCTest
                 XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4), app.debugDescription)
                 XCTAssertTrue(app.menuItems["Select All"].exists)
                 XCTAssertTrue(app.menuItems["Paste"].exists)
-                XCTAssertFalse(selectionTextView().exists)
                 capture("inline-selection-menu")
                 try assertSuppliedSystemMenuIsVisible()
                 XCTAssertTrue(revealNativeMenuItem("Select").exists)
@@ -903,10 +902,8 @@ import XCTest
             #else
                 if isIPad {
                     longPressTerminal(in: terminal, offset: CGVector(dx: 0.35, dy: 0.18))
-                    if app.launchArguments.contains("--legacy-selection") {
-                        XCTAssertTrue(selectionTextView().waitForExistence(timeout: 4))
-                        capture("15-long-press-selection")
-                        dismissSelectionSheet()
+                    if app.launchArguments.contains("--no-inline-selection") {
+                        XCTAssertFalse(app.menuItems["Select"].waitForExistence(timeout: 1))
                     } else {
                         XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
                         tapTerminal(in: terminal)
@@ -924,8 +921,8 @@ import XCTest
                     )
                 } else {
                     longPressTerminal(in: terminal, offset: CGVector(dx: 0.35, dy: 0.18))
-                    if app.launchArguments.contains("--legacy-selection") {
-                        XCTAssertTrue(selectionTextView().waitForExistence(timeout: 4))
+                    if app.launchArguments.contains("--no-inline-selection") {
+                        XCTAssertFalse(app.menuItems["Select"].waitForExistence(timeout: 1))
                     } else {
                         XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
                     }
@@ -1019,18 +1016,12 @@ import XCTest
 
         #if !targetEnvironment(macCatalyst)
             private func prepareTerminalForTyping(_ element: XCUIElement) -> Bool {
-                if selectionTextView().exists {
-                    dismissSelectionSheet()
-                }
                 if waitForKeyboardFocus(in: element, timeout: 0.5) {
                     return true
                 }
 
                 for _ in 0 ..< 2 {
                     tapTerminal(in: element)
-                    if selectionTextView().waitForExistence(timeout: 0.25) {
-                        dismissSelectionSheet()
-                    }
                     if waitForKeyboardFocus(in: element, timeout: 2) {
                         return true
                     }
@@ -1282,18 +1273,6 @@ import XCTest
                 guard window.exists else { return }
                 window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
             #endif
-        }
-
-        private func dismissSelectionSheet() {
-            let done = app.buttons["terminal.selectionDoneButton"].firstMatch
-            if done.waitForExistence(timeout: 2), done.isHittable {
-                done.tap()
-                XCTAssertTrue(selectionTextView().waitForNonExistence(timeout: 3))
-            }
-        }
-
-        private func selectionTextView() -> XCUIElement {
-            app.textViews["terminal.selectionTextView"].firstMatch
         }
 
         private func capture(_ name: String) {

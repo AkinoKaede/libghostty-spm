@@ -82,13 +82,13 @@
             }
         #endif
 
-        /// Opt in to terminal-local touch selection and the native edit menu on iOS.
+        /// Terminal-local touch selection and the native edit menu on iOS, on by default.
         /// Single tap clears selection or a menu, otherwise clicks and toggles the keyboard.
         /// Double tap selects a word, triple tap selects a row.
         /// Selection gestures and menus leave keyboard visibility unchanged.
         /// Long press opens the menu; one finger extends a selection and two fingers scroll locally.
-        /// The existing selection-page delegate remains available when this is false.
-        /// Mac Catalyst always uses the existing pointer selection path.
+        /// Set false to opt out: no touch selection at all, a tap clicks and toggles the keyboard.
+        /// Mac Catalyst always uses the pointer selection path; there this stays false.
         open var usesInlineTextSelection: Bool {
             get { touchSelection.enabled }
             set {

@@ -7,7 +7,11 @@
     import UIKit
 
     struct TouchSelectionState {
-        var enabled = false
+        #if targetEnvironment(macCatalyst)
+            var enabled = false
+        #else
+            var enabled = true
+        #endif
         var lastInputWasDirect = true
         var range: ClosedRange<Int>?
         var grid: TerminalSelectionGrid?

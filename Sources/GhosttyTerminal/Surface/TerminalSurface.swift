@@ -333,8 +333,7 @@ public final class TerminalSurface {
         struct QuicklookWordResult {
             let word: String
             /// Linear cell index of the word's first cell in the viewport grid
-            /// (`row * columns + column`); the grid position to use, see
-            /// `TerminalSelectionAnchor`.
+            /// (`row * columns + column`); the grid position to use.
             let offsetStart: UInt32
             let offsetLength: UInt32
             // tl_px_x / tl_px_y are reported in host points (view coordinates),

@@ -19,7 +19,6 @@ extension TerminalViewState:
     TerminalSurfaceScrollbarDelegate,
     TerminalSurfaceCommandFinishedDelegate,
     TerminalSurfaceLifecycleDelegate,
-    TerminalSurfaceTextSelectionRequestDelegate,
     TerminalSurfaceClipboardConfirmationDelegate,
     TerminalSurfaceColorChangeDelegate
 {
@@ -156,10 +155,6 @@ extension TerminalViewState:
             $0.lastCommandExitCode = exitCode
             $0.lastCommandDurationNanos = durationNanos
         }
-    }
-
-    public func terminalDidRequestTextSelection(_ request: TerminalTextSelectionRequest) {
-        onTextSelectionRequest?(request)
     }
 
     public func terminalDidRequestClipboardConfirmation(_ request: TerminalClipboardConfirmationRequest) {

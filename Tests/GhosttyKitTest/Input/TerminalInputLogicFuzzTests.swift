@@ -4,7 +4,7 @@ import GhosttyKit
 import Testing
 
 /// Seeded fuzzing of the pure input types: document/marked-offset
-/// conversion, the marked-text editing model, the quicklook-word anchor and
+/// conversion, the marked-text editing model, the hardware key tables and
 /// the shell escaper. Every input is drawn from `SeededGenerator`, so a
 /// failure reproduces from the seed in its message.
 struct TerminalInputLogicFuzzTests {
@@ -153,63 +153,6 @@ struct TerminalInputLogicFuzzTests {
             #expect(state.markedRange.location == NSNotFound, "\(context)")
             #expect(state.currentSelectedRange.location == NSNotFound, "\(context)")
             #expect(selection == NSRange(location: 0, length: 0), "\(context)")
-        }
-    }
-
-    // MARK: - TerminalSelectionAnchor
-
-    private static let words = [
-        "cat", "catalog", "dog", "/foo", "foo", "-rf", "a", "aa", "x_y", "42",
-        "src/main.swift", "~", "README.md", "e\u{301}t\u{E9}",
-    ]
-
-    /// Viewports of space-separated tokens. Pointing at any token by its
-    /// cell offset must select exactly that occurrence, whatever duplicates
-    /// and prefixes share its row.
-    @Test(arguments: seeds)
-    func `the anchor resolves every token to its own occurrence`(seed: UInt64) throws {
-        var random = SeededGenerator(seed: seed)
-        for _ in 0 ..< 200 {
-            var rows: [[String]] = []
-            for _ in 0 ..< random.int(in: 1 ... 12) {
-                rows.append((0 ..< random.int(in: 0 ... 8)).map { _ in random.pick(Self.words) })
-            }
-            let lines = rows.map { $0.joined(separator: " ") }
-            let text = lines.joined(separator: "\n")
-            let columns = (lines.map { ($0 as NSString).length }.max() ?? 0) + random.int(in: 1 ... 20)
-
-            for (row, tokens) in rows.enumerated() {
-                var column = 0
-                for token in tokens {
-                    let offset = UInt32(row * columns + column)
-                    let range = try #require(TerminalSelectionAnchor.resolveRange(
-                        in: text, word: token, offsetStart: offset, columns: UInt32(columns)
-                    ), "seed \(seed): \(token) at \(row):\(column)")
-                    let lineStart = lines[..<row].reduce(0) { $0 + ($1 as NSString).length + 1 }
-                    #expect(range == NSRange(location: lineStart + column, length: (token as NSString).length), "seed \(seed): \(token) at \(row):\(column) in \(text.debugDescription)")
-                    column += (token as NSString).length + 1
-                }
-            }
-        }
-    }
-
-    /// Any word, offset and width: the anchor answers nil or a range that
-    /// lies in the text and spells the word.
-    @Test(arguments: seeds)
-    func `the anchor never answers outside the text`(seed: UInt64) {
-        var random = SeededGenerator(seed: seed)
-        let alphabet = ["a", "b", " ", "\n", "\u{4E2D}", "\u{1F600}", "/", "e\u{301}"]
-        for _ in 0 ..< 3000 {
-            let text = random.string(from: alphabet, maxLength: 60)
-            let word = random.chance(0.1) ? "" : random.string(from: alphabet.filter { $0 != "\n" }, maxLength: 3)
-            let columns = UInt32(random.int(in: 0 ... 40))
-            let offset = UInt32(random.int(in: 0 ... 400))
-            guard let range = TerminalSelectionAnchor.resolveRange(
-                in: text, word: word, offsetStart: offset, columns: columns
-            ) else { continue }
-            #expect(columns > 0 && !word.isEmpty)
-            #expect(NSMaxRange(range) <= (text as NSString).length)
-            #expect((text as NSString).substring(with: range) == word)
         }
     }
 

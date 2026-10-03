@@ -197,12 +197,17 @@ give a view (`hitTest`, `canBecomeFirstResponder`) plus
 click has been sent — override it to keep a tap from raising or dismissing
 the software keyboard.
 
-With inline selection enabled, a single tap first clears an active selection
+On iOS, inline touch selection is on by default (`usesInlineTextSelection`;
+Mac Catalyst uses pointer selection instead). A single tap first clears an active selection
 or dismisses an open edit menu. Otherwise it sends the terminal click and
 toggles the software keyboard, including in mouse-reporting applications.
 Double/triple taps select a word/row and long press opens the edit menu;
 those gestures do not also toggle the keyboard. Pinch zoom stays available.
 Hosts should not add a second tap-to-focus handler around the terminal view.
+Set `usesInlineTextSelection = false` to turn touch selection off; a tap then
+only clicks and toggles the keyboard. The long-press viewport-snapshot sheet
+(`TerminalTextSelectionRequest`, `TerminalSurfaceTextSelectionRequestDelegate`,
+`TerminalViewState.onTextSelectionRequest`) has been removed.
 
 ## Notes
 

@@ -6,9 +6,9 @@ import Testing
 
 @MainActor
 struct InMemoryTerminalSessionViewportTests {
-    /// One line per viewport row is the contract `TerminalSelectionAnchor`
-    /// indexes by. A single read over the whole viewport unwraps a
-    /// soft-wrapped row into the line above it, shifting every anchor below.
+    /// One line per viewport row is the contract callers index by. A single
+    /// read over the whole viewport unwraps a soft-wrapped row into the line
+    /// above it, shifting every row below.
     @Test
     func `viewport text keeps one line per row across a soft wrap`() {
         let harness = ViewportHarness()
