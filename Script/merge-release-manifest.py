@@ -9,10 +9,10 @@ import sys
 
 def normalize(text):
     text, urls = re.subn(
-        r'url: "https://github.com/[^"\n]+/releases/download/[^"\n]+/GhosttyKit\.xcframework\.zip"',
+        r'url: "(?:__DOWNLOAD_URL__|https://github.com/[^"\n]+/releases/download/[^"\n]+/GhosttyKit\.xcframework\.zip)"',
         'url: "__DOWNLOAD_URL__"', text,
     )
-    text, checksums = re.subn(r'checksum: "[0-9a-f]{64}"', 'checksum: "__CHECKSUM__"', text)
+    text, checksums = re.subn(r'checksum: "(?:__CHECKSUM__|[0-9a-f]{64})"', 'checksum: "__CHECKSUM__"', text)
     if (urls, checksums) != (1, 1):
         raise ValueError("expected exactly one generated XCFramework URL and checksum")
     return text

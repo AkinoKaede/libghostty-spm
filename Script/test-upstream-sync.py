@@ -102,6 +102,14 @@ class SyncTests(unittest.TestCase):
         self.assertEqual((self.repo / 'Ghostty.build').read_text(), '4\n')
         self.assertNotIn('1.0.2', self.run_git('tag', '--list').splitlines())
 
+    def test_replays_multiple_release_metadata_commits(self):
+        self.write('Package.swift', (self.repo / 'Package.swift').read_text().replace('"' + 'b' * 64, '"' + 'd' * 64))
+        self.old = self.commit('fork release')
+        self.run_git('push', '-q', 'origin', 'termind')
+        self.tag_upstream(lambda: self.write('Package.swift', self.manifest.replace('"' + 'a' * 64, '"' + 'c' * 64)))
+        self.assertIn('changed=true', self.prepare())
+        self.assertIn('d' * 64, (self.repo / 'Package.swift').read_text())
+
     def test_structural_manifest_conflict_requires_review(self):
         self.write('Package.swift', (self.repo / 'Package.swift').read_text().replace('Base', 'Fork'))
         self.old = self.commit('fork package name')
