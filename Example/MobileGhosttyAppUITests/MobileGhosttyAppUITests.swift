@@ -539,6 +539,43 @@ import XCTest
                 }
             }
 
+            func testInlineSelectFromWhitespaceAllowsBothHandlesToTrimTheText() throws {
+                app.terminate()
+                app.launchArguments = ["--ui-testing", "--ui-testing-hidden-selection"]
+                launchApp()
+                let terminal = try requireTerminalInteractionTarget()
+                waitForOutputLine("touch-copy-ready")
+                pointerCell(in: terminal, column: 24).press(forDuration: Self.longPressDuration)
+                XCTAssertTrue(app.menuItems["Select"].waitForExistence(timeout: 4))
+                app.menuItems["Select"].tap()
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                capture("inline-select-row-text")
+
+                // Select ends at the text, so its handle can trim within the row.
+                pointerCell(in: terminal, column: 16, fraction: 0).press(
+                    forDuration: 0.1,
+                    thenDragTo: pointerCell(in: terminal, column: 10, fraction: 0)
+                )
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                // Grab inside the handle's hit target, away from the screen edge
+                // where XCTest clamps touch coordinates, and move six columns.
+                pointerCell(in: terminal, column: 2, fraction: 0).press(
+                    forDuration: 0.1,
+                    thenDragTo: pointerCell(in: terminal, column: 8, fraction: 0)
+                )
+                XCTAssertTrue(app.menuItems["Copy"].waitForExistence(timeout: 4))
+                capture("inline-select-row-trimmed")
+                app.menuItems["Copy"].tap()
+                // UIKit's pan threshold and XCTest's interpolation can shift the
+                // final cell. Both ends must still trim within the original row.
+                let copied = try XCTUnwrap(copiedSelectionText(in: terminal, timeout: 3))
+                XCTAssertTrue("touch-copy-ready".contains(copied))
+                XCTAssertTrue(copied.contains("copy"))
+                XCTAssertFalse(copied.hasPrefix("touch-"))
+                XCTAssertFalse(copied.hasSuffix("-ready"))
+                XCTAssertFalse(app.keyboards.firstMatch.exists)
+            }
+
             func testInlineSelectionSwitchesBetweenTouchPointerAndKeyboard() throws {
                 guard isIPad else { throw XCTSkip("Pointer mixing requires iPad") }
                 app.terminate()

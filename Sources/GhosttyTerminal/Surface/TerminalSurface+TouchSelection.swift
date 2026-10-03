@@ -84,6 +84,40 @@ extension TerminalSurface {
         return nil
     }
 
+    /// The occupied text in one physical row, excluding surrounding whitespace.
+    /// Read cell intervals so wide glyphs and combining characters stay intact.
+    func textCells(inRow row: Int, columns: Int) -> ClosedRange<Int>? {
+        guard row >= 0, columns > 0 else { return nil }
+        let start = row * columns
+        let end = start + columns - 1
+        func hasText(_ range: ClosedRange<Int>) -> Bool {
+            guard let text = readCells(range, columns: columns)?.text else { return false }
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard hasText(start ... end) else { return nil }
+        var lower = start
+        var upper = end
+        while lower < upper {
+            let middle = lower + (upper - lower) / 2
+            if hasText(start ... middle) {
+                upper = middle
+            } else {
+                lower = middle + 1
+            }
+        }
+        let first = lower
+        upper = end
+        while lower < upper {
+            let middle = lower + (upper - lower + 1) / 2
+            if hasText(middle ... end) {
+                lower = middle
+            } else {
+                upper = middle - 1
+            }
+        }
+        return first ... lower
+    }
+
     /// Find visible text nearest the touched row, preferring the row above on a tie.
     func nearestTextRow(to row: Int, in rows: Range<Int>, columns: Int) -> Int? {
         guard columns > 0, rows.contains(row) else { return nil }
