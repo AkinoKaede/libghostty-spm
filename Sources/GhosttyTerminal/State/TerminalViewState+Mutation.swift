@@ -5,6 +5,7 @@
 //  Created by Lakr233 on 2026/3/17.
 //
 
+import Combine
 import SwiftUI
 
 public extension TerminalViewState {

@@ -21,7 +21,7 @@
             addInteraction(UIDropInteraction(delegate: self))
         }
 
-        public func dropInteraction(_: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
+        public func dropInteraction(_: UIDropInteraction, canHandle session: any UIDropSession) -> Bool {
             session.items.contains { item in
                 TerminalFileStaging.fileType(among: item.itemProvider.registeredTypeIdentifiers) != nil
             }
@@ -29,11 +29,11 @@
                 || session.canLoadObjects(ofClass: NSString.self)
         }
 
-        public func dropInteraction(_: UIDropInteraction, sessionDidUpdate _: UIDropSession) -> UIDropProposal {
+        public func dropInteraction(_: UIDropInteraction, sessionDidUpdate _: any UIDropSession) -> UIDropProposal {
             UIDropProposal(operation: .copy)
         }
 
-        public func dropInteraction(_: UIDropInteraction, performDrop session: UIDropSession) {
+        public func dropInteraction(_: UIDropInteraction, performDrop session: any UIDropSession) {
             let files = session.items.compactMap { item in
                 TerminalFileStaging.fileType(among: item.itemProvider.registeredTypeIdentifiers)
                     .map { TerminalFileStaging.Item(provider: item.itemProvider, type: $0) }

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-SPM package wrapping Ghostty terminal emulator C library for Apple platforms (macOS 13+, iOS 15+, Mac Catalyst 15+, visionOS 1+). Four library products:
+SPM package wrapping Ghostty terminal emulator C library for Apple platforms (macOS 13+, iOS 15+, Mac Catalyst 15+, visionOS 1+). Swift tools 6.2, Swift 6 language mode, with the upcoming features `NonisolatedNonsendingByDefault`, `InferIsolatedConformances`, `MemberImportVisibility` and `ExistentialAny` on every target (the `swiftSettings` list, kept identical in all three manifests — see Manifest Sync). `MemberImportVisibility` means a file imports every module whose members it uses (`Combine` for `@Published`, `CoreGraphics` for `CGRect`), not just whatever a sibling file pulled in. Four library products:
 
 - **GhosttyKit** — minimal re-export of the libghostty C API (`@_exported import libghostty`)
 - **GhosttyTerminal** — Swift wrapper: native views, SwiftUI integration, input handling, display link, host-managed I/O
@@ -543,7 +543,7 @@ Two release tracks, decoupled since 1.4.0:
   rebuilds every target on a PR that touches `Ghostty.ref`, `Patches/`,
   `Script/apply-patches.sh`, `Script/build-ghostty.sh`,
   `Script/prepare-zig-lib.sh`, or `Script/support/`. When bumping, keep the Zig version pinned in build.yml
-  *and* source-build.yml (0.15.2 today) in sync with the pinned upstream's
+  *and* source-build.yml (0.16.0 today) in sync with the pinned upstream's
   `minimum_zig_version` (build.zig.zon) — and re-diff `Patches/zig/` against
   the new std, since `prepare-zig-lib.sh` looks the patch up by exact Zig
   version. **`Ghostty.build`** is the asset revision for one pinned

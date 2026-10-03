@@ -3,6 +3,7 @@
 //  libghostty-spm
 //
 
+import CoreGraphics
 import Foundation
 
 /// Selection positions are terminal cells, never UTF-16 or Unicode scalar offsets.

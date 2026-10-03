@@ -1,5 +1,6 @@
 #if !canImport(UIKit) && canImport(AppKit)
     import AppKit
+    import Combine
     import Foundation
     @testable import GhosttyTerminal
     import SwiftUI

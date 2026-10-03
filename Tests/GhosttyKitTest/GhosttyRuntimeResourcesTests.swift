@@ -41,7 +41,10 @@ struct GhosttyRuntimeResourcesTests {
         var files: [String] = []
         for case let url as URL in enumerator {
             guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { continue }
-            files.append(url.path.replacingOccurrences(of: integration.path + "/", with: ""))
+            files.append(url.resolvingSymlinksInPath().path.replacingOccurrences(
+                of: integration.resolvingSymlinksInPath().path + "/",
+                with: ""
+            ))
 
             let text = try String(contentsOf: url, encoding: .utf8)
             // Split so the license name itself never appears in this tree.
