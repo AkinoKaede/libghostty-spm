@@ -27,7 +27,22 @@ mkdir -p .git/info
 printf '%s\n' 'Package.swift merge=release-manifest' 'Ghostty.build merge=asset-revision' >> .git/info/attributes
 git config user.name 'github-actions[bot]'
 git config user.email 'github-actions[bot]@users.noreply.github.com'
-git rebase "$UPSTREAM"
+if ! git rebase "$UPSTREAM"; then
+    # An upstream engine bump removes Ghostty.build. Git reports a
+    # modify/delete conflict without calling the content merge driver.
+    # Discard only this generated counter, then allocate it below.
+    while true; do
+        CONFLICTS=$(git diff --name-only --diff-filter=U)
+        if [ "$CONFLICTS" != Ghostty.build ]; then
+            echo "[-] source rebase requires manual resolution" >&2
+            exit 1
+        fi
+        git rm -f --ignore-unmatch Ghostty.build
+        if GIT_EDITOR=true git rebase --continue; then
+            break
+        fi
+    done
+fi
 
 # Reuse a binary only when all of its native source/toolchain/build inputs match.
 # Otherwise choose a fresh tag; never overwrite a published XCFramework.

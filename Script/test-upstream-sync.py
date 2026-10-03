@@ -125,6 +125,14 @@ class SyncTests(unittest.TestCase):
         self.prepare()
         self.assertEqual((self.repo / 'Ghostty.build').read_text(), '8\n')
 
+    def test_engine_bump_can_remove_the_generated_build_counter(self):
+        def bump():
+            (self.repo / 'Ghostty.build').unlink()
+            self.write('Ghostty.ref', 'e' * 40 + '\n')
+        self.tag_upstream(bump)
+        self.assertIn('changed=true', self.prepare())
+        self.assertEqual((self.repo / 'Ghostty.build').read_text(), '1\n')
+
     def test_source_conflict_stops_before_promotion(self):
         self.write('source.swift', 'fork change\n')
         self.old = self.commit('fork source')
